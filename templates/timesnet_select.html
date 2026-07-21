@@ -1,0 +1,188 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>🧠 TimesNet 选股 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1080px;margin:0 auto;padding:14px}
+  .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:13px}
+  select,input[type=number]{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:5px 9px;font-size:13px}
+  button{font-size:13px;padding:7px 16px;border-radius:7px;cursor:pointer;background:#7c3aed;color:#fff;border:none}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .st{color:#94a3b8;font-size:12.5px}
+  table{border-collapse:collapse;font-size:12px;width:100%}
+  th,td{border:1px solid #1e293b;padding:4px 8px;text-align:center;white-space:nowrap}
+  thead th{background:#0f172a;color:#cbd5e1}
+  .scode{text-align:left;color:#7dd3fc;font-family:monospace}.sname{text-align:left;color:#cbd5e1}
+  .rk{color:#c4b5fd;font-weight:700}
+  .a-both{color:#86efac;font-weight:600}.a-only{color:#f59e0b;font-weight:600}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .tablewrap{overflow:auto;max-height:72vh}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>用某个<b>量价挖矿批次的精选因子</b>,只喂给<b>同期实测最强的模型 TimesNet</b>(csi1000 IR 2.36 / csi300 IR 1.06),出次日 Top-K 买入清单。<b>与真路B 的区别</b>:真路B 跑全 10 模型;这里只跑 TimesNet,更快更聚焦。<b>关键</b>:ptnn 现已真正只吃批次精选因子(不再用全 Alpha158),所以这页能验证"少而精的因子是否让 TimesNet 选股更好"。<b>「Alpha158也选」</b>列=这只票是否也被全 Alpha158 模型挑中,<span style="color:#f59e0b">橙=TimesNet 批次独选</span>=精选因子带来的差异。<b>TimesNet 训练慢(GPU 已串行),首次约几分~十几分。仅研究。</b></div></details>
+  <div class="wrap">
+    <div class="bar">
+      量价批次 <select id="batch"><option value="">加载中</option></select>
+      股票池 <select id="univ"><option value="csi300">沪深300</option><option value="csi500">中证500</option><option value="csi1000" selected>中证1000</option></select>
+      Top<input id="topn" type="number" min="5" max="80" value="50" style="width:48px"/>
+      <button id="run">🧠 跑 TimesNet 出清单</button>
+      <button id="togglehist" style="background:#1e3a5f">📋 已运行</button>
+      <span id="stt" class="st"></span>
+    </div>
+    <div id="hist" style="display:none;margin-bottom:8px"></div>
+    <div id="out" class="st" style="padding:10px">加载中…</div>
+
+    <div style="font-size:14px;color:#c4b5fd;margin:18px 0 6px;font-weight:600">📋 清单留痕 · 按时间/选项比对分析</div>
+    <div class="st" style="margin-bottom:6px">每次生成的清单都按时间存下(批次/池/模型)。<b>勾选两次</b>→点「比对」看两份清单的新增/掉出/排名变化。</div>
+    <div id="histlist" class="st">加载中…</div>
+    <div id="cmpout" style="margin-top:8px"></div>
+
+    <div style="font-size:14px;color:#c4b5fd;margin:18px 0 6px;font-weight:600">📊 多批次对比矩阵 · 共识标绿</div>
+    <div class="bar" style="margin-bottom:4px">
+      <span class="st">股票池</span>
+      <select id="mxuniv"><option value="csi300">沪深300</option><option value="csi500">中证500</option><option value="csi1000" selected>中证1000</option></select>
+      <span class="st">Top每批</span><input id="mxtop" type="number" min="5" max="60" value="20" style="width:46px"/>
+      <button id="mxbtn" style="background:#7c3aed">📊 刷新矩阵</button>
+      <span id="mxst" class="st"></span>
+    </div>
+    <div class="st" style="margin-bottom:6px">同一股票池下,<b>每个批次的 TimesNet 清单各占一列</b>。某只票被<b>越多批次同时选中→越绿</b>(共识更强)。先在上方对不同批次各跑一次 TimesNet,这里就并排出来了。</div>
+    <div id="mxout" class="st">加载中…</div>
+  </div>
+<script src="/static/unlock.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let POLL=null, HIST=[];
+const UNAME={csi300:"沪深300",csi500:"中证500",csi1000:"中证1000"};
+function renderHist(){
+  if(!HIST.length){ $("hist").innerHTML='<div class="note" style="margin:0">还没有已跑的 TimesNet 清单。</div>'; return; }
+  const tn=HIST.filter(r=>r.has_tn);
+  let h='<div class="note" style="margin:0"><b>📋 已跑过 TimesNet 的(批次×池)</b>(点一行直接看)<table style="margin-top:6px;width:auto"><thead><tr><th>批次</th><th>股票池</th><th>as_of</th></tr></thead><tbody>';
+  h+=(tn.length?tn:HIST).map(r=>`<tr style="cursor:pointer" onclick="goHist('${r.batch}','${r.universe}')"><td style="text-align:left;color:#7dd3fc">${r.batch}</td><td>${UNAME[r.universe]||r.universe}</td><td class="dim" style="color:#64748b">${r.as_of||''}</td></tr>`).join('');
+  h+='</tbody></table></div>';
+  $("hist").innerHTML=h;
+}
+function goHist(b,u){ $("batch").value=b; $("univ").value=u; load(); $("out").scrollIntoView({behavior:"smooth"}); }
+function render(d){
+  HIST=(d.history||[]); if($("hist").style.display!=="none") renderHist();
+  const status=d.status||{}; const pending=d.pending||status.state==="running";
+  const picks=d.a158_picks||{};
+  const tp=d.train_progress||{};
+  let live=status.msg||"PC处理中…";
+  if(pending && tp.phase && tp.model==="timesnet"){ const ep=(tp.epoch!=null)?(" Epoch "+tp.epoch+(tp.n_epochs?("/"+tp.n_epochs):"")):""; live=`TimesNet ${tp.phase}${ep}`; }
+  $("stt").textContent = pending ? ("⏳ "+live) : "";
+  $("run").disabled = pending;
+  if(pending && !POLL) POLL=setInterval(load,8000);
+  if(!pending && POLL){ clearInterval(POLL); POLL=null; }
+  const tn=(d.models||[]).find(m=>m.model==="timesnet");
+  if(!tn){ $("out").innerHTML='<div style="padding:10px">该批次在 '+(d.universe||'')+' 上还没有 TimesNet 清单。选好批次+池,点「🧠跑 TimesNet」。'+(pending?' (正在跑…)':'')+'</div>'; return; }
+  const topn=Math.max(5,Math.min(80,parseInt($("topn").value)||20));
+  const hits=(tn.hits||[]).slice(0,topn);
+  let nBoth=0,nOnly=0;
+  let h=`<div class="st" style="margin-bottom:6px">🧠 <b>TimesNet</b> · 批次 <b style="color:#c4b5fd">${d.batch}</b> · ${UNAME[d.universe]||d.universe} · 基准日 ${tn.as_of||'?'} · ${tn.n_universe||'?'}只里选 Top${topn}</div>`;
+  h+='<div class="tablewrap"><table><thead><tr><th>排名</th><th>代码</th><th>简称</th><th>解禁/协转</th><th>Alpha158也选?</th></tr></thead><tbody>';
+  h+=hits.map(x=>{ const also=(picks[x.code]||0)>0; if(also)nBoth++; else nOnly++;
+    return `<tr><td class="rk">${x.rank}</td><td class="scode">${x.code}</td><td class="sname">${x.name||''}</td>`
+      +`<td>${formatUnlockInfo(x)}</td><td class="${also?'a-both':'a-only'}">${also?'✓ 也选':'★ 批次独选'}</td></tr>`;}).join('');
+  h+='</tbody></table></div>';
+  h+=`<div class="note">共 ${hits.length} 只: <span class="a-both">${nBoth} 只 Alpha158 也选</span> / <span class="a-only">${nOnly} 只 TimesNet 用精选因子独选</span>。<b>独选越多</b>=精选因子让 TimesNet 选出了全 Alpha158 看不到的票(差异化来源, 也可能更投机)。想对比"精选 vs 全Alpha158"哪个清单更靠谱, 与 <a href="/predict-csi1000" style="color:#86efac">Alpha158中证1000清单</a> 的 timesnet 列横向比。<b>仅研究, 下单自查停牌/涨停。</b></div>`;
+  $("out").innerHTML=h;
+}
+async function load(){ try{ render(await (await fetch("/api/batch_predict?batch="+encodeURIComponent($("batch").value)+"&u="+$("univ").value)).json()); }catch(e){} }
+function fillBatches(d){ const labels=d.batches||[]; const cur=$("batch").value;
+  $("batch").innerHTML=labels.length?labels.map(b=>`<option value="${b}">${b}</option>`).join(''):'<option value="">(暂无量价批次)</option>';
+  if(labels.includes(cur)) $("batch").value=cur; }
+$("batch").addEventListener("change", load);
+$("univ").addEventListener("change", load);
+$("topn").addEventListener("change", load);
+$("togglehist").addEventListener("click", ()=>{ const e=$("hist"); if(e.style.display==="none"){ e.style.display="block"; renderHist(); } else e.style.display="none"; });
+$("run").addEventListener("click", async ()=>{
+  const batch=$("batch").value, u=$("univ").value;
+  if(!batch){ alert("请选量价批次"); return; }
+  if(!confirm(`确定用批次 ${batch} 在 ${UNAME[u]} 上只跑 TimesNet 出次日清单?\nTimesNet 训练较慢(GPU已串行), 约几分~十几分, 需PC在跑。`)) return;
+  $("run").disabled=true; $("stt").textContent="提交中…";
+  try{ const j=await (await fetch("/api/batch_predict/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch,universe:u,model:"timesnet"})})).json();
+    $("stt").textContent=j.message||""; setTimeout(load,1500);
+  }catch(e){ $("stt").textContent="失败: "+e.message; $("run").disabled=false; }
+});
+// ===== 清单留痕 + 比对 =====
+let RUNS=[], SEL=[];
+async function loadHistory(){
+  try{ const d=await (await fetch("/api/buylist_history?model=timesnet")).json(); RUNS=d.runs||[]; renderHistList(); }catch(e){ $("histlist").innerHTML='<span class="dim">历史加载失败</span>'; }
+}
+function renderHistList(){
+  if(!RUNS.length){ $("histlist").innerHTML='<div class="note" style="margin:0">还没有留痕。跑一次 TimesNet 清单后,这里按时间记一条。</div>'; return; }
+  let h='<table style="width:auto"><thead><tr><th>选</th><th>生成时间</th><th>批次</th><th>股票池</th><th>基准日</th><th>Top</th></tr></thead><tbody>';
+  h+=RUNS.map((r,i)=>`<tr><td><input type="checkbox" data-i="${i}" ${SEL.includes(i)?'checked':''} onchange="toggleSel(${i},this.checked)"/></td>`+
+    `<td class="dim" style="font-family:monospace">${r.generated_at||''}</td><td style="color:#c4b5fd">${r.batch||'默认'}</td>`+
+    `<td>${UNAME[r.universe]||r.universe}</td><td class="dim">${r.as_of||''}</td><td>${(r.hits||[]).length}</td></tr>`).join('');
+  h+='</tbody></table>';
+  $("histlist").innerHTML=h+'<button onclick="compareTwo()" style="margin-top:6px;background:#7c3aed">🔍 比对选中两次</button>';
+}
+function toggleSel(i,on){ if(on){ SEL.push(i); if(SEL.length>2) SEL.shift(); } else { SEL=SEL.filter(x=>x!==i); } renderHistList(); }
+function compareTwo(){
+  if(SEL.length!==2){ alert("请勾选两次清单"); return; }
+  const A=RUNS[SEL[1]], B=RUNS[SEL[0]];  // A=较早, B=较新(列表倒序)
+  const topn=Math.max(5,Math.min(80,parseInt($("topn").value)||20));
+  const setA=new Map((A.hits||[]).slice(0,topn).map(h=>[h.code,h])), setB=new Map((B.hits||[]).slice(0,topn).map(h=>[h.code,h]));
+  const codes=[...new Set([...setA.keys(),...setB.keys()])];
+  let nNew=0,nDrop=0,nBoth=0;
+  const rows=codes.map(c=>{ const a=setA.get(c),b=setB.get(c); let kind,chg,ord;
+    if(b&&!a){kind='new';nNew++;ord=0;chg='<span style="color:#86efac;font-weight:600">🆕新增</span>';}
+    else if(a&&!b){kind='drop';nDrop++;ord=2;chg='<span style="color:#fca5a5">掉出</span>';}
+    else{kind='both';nBoth++;ord=1;const d=a.rank-b.rank;chg=d>0?`<span style="color:#86efac">↑${d}</span>`:(d<0?`<span style="color:#fbbf24">↓${-d}</span>`:'<span class="dim">=</span>');}
+    const nm=(b&&b.name)||(a&&a.name)||''; return {c,nm,kind,chg,ord,ar:a?a.rank:'·',br:b?b.rank:'·',bk:(b?b.rank:999)};
+  }).sort((x,y)=>x.ord-y.ord||x.bk-y.bk);
+  let h=`<div class="note"><b>比对</b>: <span style="color:#94a3b8">${A.generated_at} (${A.batch}/${UNAME[A.universe]||A.universe})</span> → <span style="color:#cbd5e1">${B.generated_at} (${B.batch}/${UNAME[B.universe]||B.universe})</span><br>`+
+    `<span style="color:#86efac">🆕新增 ${nNew}</span> · <span style="color:#cbd5e1">共有 ${nBoth}</span> · <span style="color:#fca5a5">掉出 ${nDrop}</span> · 重合率 ${(nBoth/Math.max(codes.length,1)*100).toFixed(0)}%</div>`;
+  h+='<div class="tablewrap"><table><thead><tr><th>变化</th><th>代码</th><th>简称</th><th>早·排名</th><th>新·排名</th></tr></thead><tbody>';
+  h+=rows.map(r=>`<tr><td>${r.chg}</td><td class="scode">${r.c}</td><td class="sname">${r.nm}</td><td class="dim">${r.ar}</td><td>${r.br}</td></tr>`).join('');
+  h+='</tbody></table></div>';
+  $("cmpout").innerHTML=h;
+}
+// ===== 多批次对比矩阵 =====
+async function loadMatrix(){
+  const u=$("mxuniv").value, topn=parseInt($("mxtop").value)||20;
+  $("mxst").textContent="加载中…";
+  try{
+    const d=await (await fetch(`/api/buylist_matrix?universe=${u}&model=timesnet&topn=${topn}`)).json();
+    const B=d.batches||[], S=d.stocks||[];
+    $("mxst").textContent=`${B.length}个批次 · ${S.length}只`;
+    if(!B.length){ $("mxout").innerHTML='<div class="note">该池还没有任何批次的 TimesNet 清单。先在上面选不同批次各跑一次,这里就并排对比了。</div>'; return; }
+    if(B.length===1){ $("mxout").innerHTML='<div class="note">该池目前只有 <b>1 个批次</b>('+B[0]+')的清单,无法对比共识。再跑一个别的批次(同池),这里就能并排标绿了。下面先单列显示:</div>'+renderMx(d); return; }
+    $("mxout").innerHTML=renderMx(d);
+  }catch(e){ $("mxout").innerHTML='<span class="dim">矩阵加载失败</span>'; }
+}
+function renderMx(d){
+  const B=d.batches, S=d.stocks, maxc=B.length;
+  let h='<div class="tablewrap"><table><thead><tr><th>#批次</th><th>代码</th><th>简称</th>'
+    +B.map(b=>`<th>${b}<br><span style="font-size:10px;color:#64748b">${(d.as_of||{})[b]||''}</span></th>`).join('')+'</tr></thead><tbody>';
+  h+=S.map(s=>{
+    const k=s.count;
+    // 共识越多越绿
+    const cnt=maxc>1?`<td style="font-weight:700;color:${k>=maxc?'#86efac':(k>=2?'#5eead4':'#64748b')}">${k}</td>`:`<td class="dim">${k}</td>`;
+    return `<tr>${cnt}<td class="scode">${s.code}</td><td class="sname">${s.name||''}</td>`
+      +B.map(b=>{ const r=s.ranks[b];
+        if(r==null) return '<td>·</td>';
+        const bg=k>=maxc&&maxc>1?'#14532d':(k>=2?'#0c3a2e':'transparent');
+        const col=k>=2?'#86efac':'#cbd5e1';
+        return `<td style="background:${bg};color:${col};font-weight:${k>=2?'600':'400'}">${r}</td>`;}).join('')+'</tr>';
+  }).join('');
+  h+='</tbody></table></div><div class="note">列=批次的 TimesNet 清单,格=该票在该批次里的排名。<b>「#批次」=被几个批次选中</b>;<span style="color:#86efac">绿色=多批次共识</span>(全批次都选=深绿),共识票通常更稳。</div>';
+  return h;
+}
+$("mxbtn").addEventListener("click", loadMatrix);
+$("mxuniv").addEventListener("change", loadMatrix);
+$("mxtop").addEventListener("change", loadMatrix);
+// 初次: 先拉批次列表填下拉, 再load + 历史
+(async()=>{ try{ const d=await (await fetch("/api/batch_predict?u=csi1000")).json(); fillBatches(d);
+  if((d.batches||[]).length) $("batch").value=d.batches[0]; load(); loadHistory(); loadMatrix(); }catch(e){} })();
+// 跑完(状态从running转done)刷新历史: 简单起见每60秒刷一次留痕
+setInterval(loadHistory, 60000);
+</script>
+</body>
+</html>

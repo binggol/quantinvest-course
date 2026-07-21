@@ -1,0 +1,128 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>批次因子买入清单·{{ pool_name }}(真路B) · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1200px;margin:0 auto;padding:14px}
+  .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:13px}
+  select{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:5px 9px;font-size:13px}
+  button{font-size:13px;padding:7px 16px;border-radius:7px;cursor:pointer;background:#166534;color:#fff;border:none}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .st{color:#94a3b8;font-size:12.5px}
+  table{border-collapse:collapse;font-size:12px;width:100%}
+  th,td{border:1px solid #1e293b;padding:3px 6px;text-align:center;white-space:nowrap}
+  thead th{background:#0f172a;color:#cbd5e1;position:sticky;top:0}
+  .mcol{font-size:10px;color:#64748b}
+  .hit{background:#14532d;color:#86efac;font-weight:600}.consensus{background:#166534;color:#bbf7d0}
+  .scode{text-align:left;color:#7dd3fc;font-family:monospace}.sname{text-align:left;color:#cbd5e1}
+  .cnt{color:#fbbf24;font-weight:700}
+  .a-both{color:#86efac;font-weight:600}.a-only{color:#f59e0b;font-weight:600}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .tablewrap{overflow:auto;max-height:72vh}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>用某个<b>历史 OHLCV 挖矿批次</b>挑出的因子,在<b>选定股票池(csi300/500/1000)</b>上全模型预测次日买入清单(<b>真路B</b>:Alpha158 按该池现算 + 批次自定义因子从全市场库取子集, <b>精确还原批次全部因子、不丢自定义</b>)。绿=多模型共识。<b>「Alpha158也选」</b>列:这只票是否也被全 Alpha158 挑中——<span style="color:#f59e0b">橙色=批次独选(Alpha158没选)</span>=批次因子筛选的差异化来源。<b>因子模型在小盘(csi1000/500)更有 edge。仅研究, 下单自查停牌/涨停。</b></div></details>
+  <div class="wrap">
+    <div class="bar" style="background:#0f1f17;border:1px solid #1e5f3a;border-radius:8px;padding:8px 12px">
+      <span style="color:#86efac;font-weight:600">🧬 挖新批次(非基本面 · {{ pool_name }})</span>
+      <input type="hidden" id="mineuniv" value="{{ pool }}"/>
+      轮数 <input id="mineloops" type="number" min="1" max="10" value="2" style="width:46px;background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:4px"/>
+      <button id="minebtn" style="background:#166534">🧬 开始挖掘</button>
+      <span id="minest" class="st" style="color:#86efac;font-family:monospace"></span>
+    </div>
+    <div class="st" style="margin:-2px 0 8px;color:#64748b;font-size:11.5px">本页挖矿固定 <b>非基本面 · {{ pool_name }}</b>(其他组合见导航各自的挖矿页)。挖完出能夺SOTA的因子→新批次自动进下面下拉,再选它预测。<b>分池挖矿RD-Agent未充分验证</b>,首次留意报错。~小时级,需PC Docker。</div>
+    <div class="bar">
+      批次 <select id="batch"><option value="">加载中</option></select>
+      股票池 <span style="color:#86efac;font-weight:600">{{ pool_name }}</span><input type="hidden" id="univ" value="{{ pool }}"/>
+      Top<input id="topn" type="number" min="5" max="80" value="30" style="width:48px;background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:4px"/>
+      <button id="runall">🚀 一键全跑(该批次×该池×全模型)</button>
+      <button id="togglehist" style="background:#1e3a5f">📋 已运行历史</button>
+      <span id="stt" class="st"></span>
+    </div>
+    <div id="hist" style="display:none;margin-bottom:8px"></div>
+    <div id="out" class="st" style="padding:10px">加载中…</div>
+  </div>
+<script src="/static/unlock.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let POLL=null, HIST=[];
+const UNAME={csi300:"沪深300",csi500:"中证500",csi1000:"中证1000"};
+function unlockCell(u){
+  return formatUnlockInfo(u);
+}
+function renderHist(){
+  if(!HIST.length){ $("hist").innerHTML='<div class="note">还没有已运行的批次清单。跑过的(批次×池)会列在这里,点一下直接看,不用重跑。</div>'; return; }
+  let h='<div class="note" style="margin:0"><b>📋 已运行历史</b>(点一行直接看,避免重复跑)<table style="margin-top:6px;width:auto"><thead><tr><th>批次</th><th>股票池</th><th>模型数</th><th>as_of</th></tr></thead><tbody>';
+  h+=HIST.map(r=>`<tr style="cursor:pointer" onclick="goHist('${r.batch}','${r.universe}')"><td style="text-align:left;color:#7dd3fc">${r.batch}</td><td>${UNAME[r.universe]||r.universe}</td><td>${r.n_models}/10</td><td class="dim" style="color:#64748b">${r.as_of||''}</td></tr>`).join('');
+  h+='</tbody></table></div>';
+  $("hist").innerHTML=h;
+}
+function goHist(b,u){ $("batch").value=b; $("univ").value=u; load(); $("out").scrollIntoView({behavior:"smooth"}); }
+function render(d){
+  HIST=d.history||[]; if($("hist").style.display!=="none") renderHist();
+  const M=d.models||[]; const status=d.status||{}; const pending=d.pending||status.state==="running";
+  const picks=d.a158_picks||{};
+  $("stt").textContent = pending ? ("⏳ "+(status.msg||"PC处理中…")) : (M.length? (M.length+" 模型 · "+(M[0].as_of||"")) : "");
+  $("runall").disabled = pending;
+  // 挖矿状态(分池挖矿)
+  const mineS=d.mine_status||{}; const minePending=d.mine_pending||mineS.state==="running";
+  $("minest").innerHTML = minePending ? ("⏳ "+(mineS.msg||"挖矿中…")) : (mineS.state==="error"?('<span style="color:#fca5a5">⚠️ '+(mineS.msg||'')+'</span>'):(mineS.state==="done"?("✓ "+(mineS.msg||"")):""));
+  $("minebtn").disabled=minePending;
+  if((pending||minePending) && !POLL) POLL=setInterval(load,8000);
+  if(!pending && !minePending && POLL){ clearInterval(POLL); POLL=null; }
+  if(!M.length){ $("out").innerHTML='<div style="padding:10px">该批次在 '+(d.universe||'')+' 上还没有清单。选好批次+池,点「🚀一键全跑」。'+(pending?' (正在跑…)':'')+'</div>'; return; }
+  const topn=Math.max(5,Math.min(80,parseInt($("topn").value)||30));
+  const perM=M.map(m=>({model:m.model, set:new Set((m.hits||[]).slice(0,topn).map(h=>h.code)),
+                        rank:Object.fromEntries((m.hits||[]).slice(0,topn).map(h=>[h.code,h.rank])),
+                        name:Object.fromEntries((m.hits||[]).map(h=>[h.code,h.name||""])),
+                        unlock:Object.fromEntries((m.hits||[]).map(h=>[h.code,h.unlock_info||null]))}));
+  const cnt={}, nm={};
+  perM.forEach(pm=>pm.set.forEach(c=>{cnt[c]=(cnt[c]||0)+1; if(pm.name[c])nm[c]=pm.name[c];}));
+  const stocks=Object.keys(cnt).sort((a,b)=> cnt[b]-cnt[a] || (picks[b]||0)-(picks[a]||0) || a.localeCompare(b));
+  let h='<div class="tablewrap"><table><thead><tr><th>#选中</th><th>代码</th><th>简称</th><th>解禁/协转</th><th title="被几个全Alpha158模型也选中">Alpha158也选</th>'
+    +perM.map(pm=>`<th>${pm.model}</th>`).join('')+'</tr></thead><tbody>';
+  h+=stocks.map(c=>{
+    const k=cnt[c]; const ap=picks[c]||0; const u=perM.map(pm=>pm.unlock[c]).find(Boolean)||null;
+    const acell=ap>0?`<span class="a-both">✓${ap}</span>`:'<span class="a-only">批次独选</span>';
+    return `<tr><td class="cnt">${k}</td><td class="scode">${c}</td><td class="sname">${nm[c]||''}</td><td>${unlockCell(u)}</td><td>${acell}</td>`
+      +perM.map(pm=>{ if(!pm.set.has(c)) return '<td>·</td>';
+        const cls=k>=3?'consensus':'hit'; return `<td class="${cls}">${pm.rank[c]}</td>`;}).join('')+'</tr>';
+  }).join('');
+  h+='</tbody></table></div>';
+  h+='<div class="note">格=该票在该模型批次清单里的排名。<b>绿=多模型共识</b>。<b>Alpha158也选</b>:✓N=被N个全Alpha158模型也选中(共识更强);<span style="color:#f59e0b">批次独选</span>=只有批次因子选它、全Alpha158没选→<b>这是批次"因子筛选"带来的差异化票</b>(可能是它的alpha来源,也可能是噪声,自行判断)。<b>真路B已精确还原批次全部因子(含自定义)。仅研究。</b></div>';
+  $("out").innerHTML=h;
+}
+async function load(){ try{ const d=await (await fetch("/api/batch_predict?batch="+encodeURIComponent($("batch").value)+"&u="+$("univ").value)).json();
+  if(d.batches && $("batch").options.length<=1){ $("batch").innerHTML=d.batches.map(b=>`<option value="${b}">${b}</option>`).join(''); if(d.batch)$("batch").value=d.batch; }
+  render(d); }catch(e){} }
+$("batch").addEventListener("change", load);
+$("univ").addEventListener("change", load);
+$("topn").addEventListener("change", ()=>load());
+$("togglehist").addEventListener("click", ()=>{ const e=$("hist"); if(e.style.display==="none"){ e.style.display="block"; renderHist(); } else e.style.display="none"; });
+$("minebtn").addEventListener("click", async ()=>{
+  const u=$("mineuniv").value, n=parseInt($("mineloops").value)||2;
+  if(!confirm(`确定在 ${u} 上挖一个新因子批次?\n轮数 loop_n=${n}, ~小时级, 烧LLM, 需PC Docker。\n注: 分池挖矿是新功能, 小盘上RD-Agent未充分验证, 首次留意报错。`)) return;
+  $("minebtn").disabled=true; $("minest").textContent="启动中…";
+  try{ const j=await (await fetch("/api/rdagent/mine?universe="+u+"&loop_n="+n,{method:"POST"})).json(); $("minest").textContent=j.message||""; setTimeout(load,1500); }
+  catch(e){ $("minest").textContent="失败: "+e.message; $("minebtn").disabled=false; }
+});
+$("runall").addEventListener("click", async ()=>{
+  const batch=$("batch").value, u=$("univ").value;
+  if(!batch){ alert("请选批次"); return; }
+  if(!confirm(`确定用批次 ${batch} 在 ${u} 上全模型(10个)各跑一遍次日清单?\n真路B:含深度模型,约1小时,需PC在跑。`)) return;
+  $("runall").disabled=true; $("stt").textContent="提交中…";
+  try{ const j=await (await fetch("/api/batch_predict/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch,universe:u})})).json();
+    $("stt").textContent=j.message||""; setTimeout(load,1500);
+  }catch(e){ $("stt").textContent="失败: "+e.message; $("runall").disabled=false; }
+});
+// 共用模板: 按当前路径标 active(/predict-batch 或 /mine-ohlcv-csi1000)
+(function(){ const p=location.pathname; document.querySelectorAll('nav.topnav a').forEach(a=>{ a.classList.toggle('active', a.getAttribute('href')===p); }); })();
+load();
+</script>
+</body>
+</html>

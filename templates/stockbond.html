@@ -1,0 +1,78 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>股债配置 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:920px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .upd{color:#64748b;font-size:12px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  .sec{font-size:14px;font-weight:700;color:#e2e8f0;margin:14px 0 7px;border-left:3px solid #3b82f6;padding-left:8px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid #1e293b;padding:7px 10px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{color:#94a3b8}
+  .alloc{display:flex;gap:10px;margin:10px 0}
+  .ab{flex:1;text-align:center;padding:14px;border-radius:10px;border:1px solid #334155}
+  .ab .v{font-size:30px;font-weight:800}.ab .l{font-size:12px;color:#94a3b8;margin-top:3px}
+  .stock{background:rgba(239,68,68,.08);border-color:#7f1d1d}.bond{background:rgba(52,211,153,.08);border-color:#14532d}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;color:#cbd5e1;font-size:12.5px;line-height:1.75;margin-top:10px}
+  .pos{color:#ef4444}.neg{color:#22c55e}.best{background:rgba(52,211,153,.10)}
+  .badge{font-size:12px;padding:2px 10px;border-radius:8px;background:#1e293b;color:#cbd5e1}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>【<span class="k">降回撤神器</span>】你的组合全是股票腿(Pro/抢跑/回购…),<b>回撤大</b>。加一个<b>长债ETF做防守底仓</b>(和股票<b>负相关-0.25</b>),能把组合<b>回撤砍半、收益几乎不降</b>。验证(2020-26): 纯股回撤-46%/夏0.30 → <b>50股/50债 回撤-20%/夏0.49</b>。关键: <b>别择时轮动(预测无效,夏0.07),要恒定配比+季度再平衡。</b>长债ETF: 10年期 511260 / 30年期 511100(弹性更大)。</div></details>
+  <div class="wrap">
+    <div class="hd">⚖️ 股债配置 <span class="upd" id="upd"></span></div>
+
+    <div class="sec">① 当前行情</div>
+    <div class="card"><div id="live">加载中…</div></div>
+
+    <div class="sec">② 配比建议</div>
+    <div class="card">
+      <div style="margin-bottom:6px">核心配置 <span class="badge">恒定·不择时</span></div>
+      <div class="alloc" id="alloc-base"></div>
+      <div style="margin:10px 0 6px">当前温和倾斜 <span class="badge" id="tilt-reason"></span></div>
+      <div class="alloc" id="alloc-tilt"></div>
+      <div class="note" id="alloc-note"></div>
+    </div>
+
+    <div class="sec">③ 回测对比 (2020-2026)</div>
+    <div class="card">
+      <table><thead><tr><th>策略</th><th>年化</th><th>夏普</th><th>最大回撤</th></tr></thead><tbody id="bt-rows"></tbody></table>
+      <div class="note" id="bt-note"></div>
+    </div>
+  </div>
+<script>
+function pct(x){return x==null?"-":`<span class="${x>=0?'pos':'neg'}">${x>=0?'+':''}${x}%</span>`;}
+function bar(a,cls,lab){return `<div class="ab ${cls}"><div class="v">${a}%</div><div class="l">${lab}</div></div>`;}
+async function load(){
+  let d; try{ d=await (await fetch("/api/stockbond")).json(); }catch(e){ document.getElementById("live").textContent="加载失败"; return; }
+  document.getElementById("upd").textContent="· 更新 "+(d.updated||"");
+  const L=d.live||{};
+  const q=(o,nm)=>o?`<b>${nm}</b> ${o.price} <span class="${(o.pct||0)>=0?'pos':'neg'}">${(o.pct||0)>=0?'+':''}${o.pct}%</span>`:`<b>${nm}</b> -`;
+  document.getElementById("live").innerHTML=`
+    <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:14px">
+      <span>${q(L.hs,"沪深300")}</span><span>${q(L.b10,"10年国债ETF")}</span><span>${q(L.b30,"30年国债ETF")}</span>
+    </div>
+    <div style="margin-top:8px;font-size:13px">市场状态: <b style="color:${L.above_ma20?'#ef4444':'#34d399'}">${L.regime||'-'}</b></div>`;
+  const A=d.alloc||{};
+  document.getElementById("alloc-base").innerHTML=bar(A.base.stock,"stock","股票(沪深300/Pro篮子)")+bar(A.base.bond,"bond","长债ETF");
+  document.getElementById("alloc-tilt").innerHTML=bar(A.tilt.stock,"stock","股票")+bar(A.tilt.bond,"bond","长债ETF");
+  document.getElementById("tilt-reason").textContent=L.above_ma20===false?"股弱→债加重":(L.above_ma20?"股强→略偏股":"中性");
+  document.getElementById("alloc-note").innerHTML="💡 "+(A.note||"");
+  const B=d.backtest||{};
+  const best=Math.max(...(B.rows||[]).map(r=>r.sharpe));
+  document.getElementById("bt-rows").innerHTML=(B.rows||[]).map(r=>`
+    <tr class="${r.sharpe===best?'best':''}"><td>${r.name}${r.sharpe===best?' 🏆':''}</td><td>${pct(r.ann)}</td><td>${r.sharpe.toFixed(2)}</td><td class="neg">${r.mdd}%</td></tr>`).join("");
+  document.getElementById("bt-note").innerHTML="股债相关 <b>"+B.corr+"</b>(负相关=对冲)。"+(B.note||"");
+}
+load();
+</script>
+</body>
+</html>

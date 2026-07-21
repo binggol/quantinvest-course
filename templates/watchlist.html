@@ -1,0 +1,338 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>quantinvest · 自选股看板</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline_contract.js"></script>
+<style>
+.wl-wrap { max-width: 1500px; margin: 10px auto; padding: 0 12px; }
+.wl-add { position: relative; margin: 8px 0; }
+.wl-add input { width: 340px; max-width: 80%; padding: 6px 10px; }
+.wl-sug { position:absolute; z-index:20; background:#0f172a; border:1px solid #334155; border-radius:6px;
+  width:340px; max-width:80%; list-style:none; margin:2px 0 0; padding:0; max-height:280px; overflow:auto; }
+.wl-sug li { padding:6px 10px; cursor:pointer; font-size:13px; color:#cbd5e1; }
+.wl-sug li:hover { background:#1e293b; }
+.wl-sug .code { color:#7dd3fc; margin-right:6px; }
+.wl-sug .industry { color:#64748b; margin-left:6px; font-size:11px; }
+.wl-cols { display:grid; grid-template-columns: 340px minmax(320px,0.85fr) minmax(420px,1.25fr); gap:12px; align-items:start; }
+@media(max-width:1300px){ .wl-cols{ grid-template-columns: 320px 1fr; } .wl-charts{ grid-column:1/-1; } }
+.wl-left { background:#0f172a; border:1px solid #1e293b; border-radius:8px; overflow-y:auto; max-height:calc(100vh - 180px); position:sticky; top:10px; }
+table.wl { width:100%; border-collapse:collapse; }
+table.wl th, table.wl td { padding:6px 9px; border-bottom:1px solid #1e293b; text-align:right; font-size:12.5px; }
+table.wl th { color:#94a3b8; font-weight:600; background:#111827; position:sticky; top:0; }
+table.wl td.l, table.wl th.l { text-align:left; }
+table.wl tr.sel td { background:#13203a; }
+table.wl tr.name-row:hover td { background:#0b1220; cursor:pointer; }
+.up { color:#ef4444; } .down { color:#22c55e; } .flat { color:#94a3b8; }
+.wl-nm { color:#e2e8f0; font-weight:600; cursor:pointer; }
+.wl-nm:hover { color:#7dd3fc; }
+.wl-del { color:#f87171; cursor:pointer; background:none; border:none; font-size:12px; }
+.wl-empty { color:#64748b; padding:24px; text-align:center; }
+.wl-bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.wl-right { min-width:0; }
+.wl-tables, .wl-charts { min-width:0; }
+.det-card { background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; margin-bottom:10px; }
+.det-hd { font-size:14px; font-weight:700; color:#7dd3fc; margin-bottom:6px; }
+.det-empty { color:#64748b; padding:40px; text-align:center; }
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:7px;margin-left:4px}
+.tbuy{background:#0c2a1a;color:#34d399}.tsell{background:#3a1414;color:#f87171}.tno{background:#1e293b;color:#94a3b8}
+.dim{color:#94a3b8}.pos{color:#ef4444}.neg{color:#22c55e}
+.an-tbl{border-collapse:collapse;width:100%;font-size:12px}.an-tbl th,.an-tbl td{border-bottom:1px solid #1e293b;padding:4px 8px;text-align:right}.an-tbl th{color:#94a3b8}.an-tbl td:first-child,.an-tbl th:first-child{text-align:left}
+.note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:8px 11px;color:#cbd5e1;font-size:11.5px;line-height:1.6;margin-top:8px}
+</style>
+</head>
+<body>
+<header class="screen-header">
+  <h1>⭐ quantinvest</h1>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>左侧自选股列表(财务/价),<b>点股票名称</b>→右侧自动显示该股 <b>事件止损K线 + 经典做T分时图 + 历史相似片段基率</b>。搜索框加自选。</div></details>
+  <div class="meta">自选股看板 · 点名称看右侧图表</div>
+</header>
+
+<div class="wl-wrap">
+  <div class="wl-bar">
+    <div class="wl-add">
+      <input id="q" type="text" placeholder="搜索代码/拼音/名称添加自选 (如 gzmt, 600519, 茅台)" autocomplete="off"/>
+      <ul id="sug" class="wl-sug" style="display:none;"></ul>
+    </div>
+    <button id="refresh">🔄 刷新</button>
+    <span id="stat" style="color:#94a3b8;font-size:12px;"></span>
+  </div>
+
+  <div class="wl-cols">
+    <!-- 左: 列表 -->
+    <div class="wl-left">
+      <table class="wl">
+        <thead><tr><th class="l">名称</th><th>现价</th><th>涨跌</th><th>资金信号</th><th>营收增速</th><th>毛利率</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="wl-empty" style="display:none;">还没有自选股。上面搜索添加,或在 K线页点 ⭐ 收藏。</div>
+    </div>
+    <!-- 中: 表格(财务 + 历史基率) -->
+    <div class="wl-tables">
+      <div id="detail-tables"><div class="det-card"><div class="det-empty">👈 点左侧股票名称看详情</div></div></div>
+    </div>
+    <!-- 右: 图(事件止损K线 + 经典做T分时), 加大 -->
+    <div class="wl-charts">
+      <div id="detail-charts"><div class="det-card"><div class="det-empty">右侧显示 事件止损K线 + 经典做T分时图</div></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $q = document.getElementById("q");
+const $sug = document.getElementById("sug");
+const $rows = document.getElementById("rows");
+const $empty = document.getElementById("empty");
+const $stat = document.getElementById("stat");
+let FUND = {};   // code -> {rows}
+let CUR = "";    // 当前选中
+let evChart=null, tChart=null;
+let MONEY_FLOW_PROMISE=null, MONEY_FLOW_MAP=null;
+let EVT_REQUEST_NO=0;
+
+function code6(v){const m=String(v||"").match(/\d{6}/);return m?m[0]:"";}
+function flowColor(v){const n=Number(v);return n>0?"#22c55e":(n<0?"#ef4444":"#94a3b8");}
+async function loadMoneyFlowMap(){
+  if(MONEY_FLOW_MAP)return MONEY_FLOW_MAP;
+  if(!MONEY_FLOW_PROMISE){
+    MONEY_FLOW_PROMISE=fetch("/api/money_outflow?_="+Date.now()).then(r=>r.json()).then(d=>{
+      const map={};
+      for(const row of (d.latest_stock_flow_all||d.latest_stock_outflow||[])){
+        const k=code6(row.code||row.ts_code||row.symbol);
+        if(k)map[k]=row;
+      }
+      MONEY_FLOW_MAP=map;
+      return map;
+    }).catch(()=>({}));
+  }
+  return MONEY_FLOW_PROMISE;
+}
+function flowSeriesForDates(code, dates){
+  const row=(MONEY_FLOW_MAP||{})[code6(code)]||{};
+  const byDate={};
+  for(const x of (row.outflow_10d_daily||[])){
+    const v=Number(x.outflow_net_yi);
+    byDate[String(x.date||"").slice(0,10)]=Number.isFinite(v)?v:null;
+  }
+  return (dates||[]).map(d=>{
+    const v=byDate[String(d||"").slice(0,10)];
+    return Number.isFinite(v)?v:null;
+  });
+}
+function moneySignal(code){
+  const m=(MONEY_FLOW_MAP||{})[code6(code)]||{};
+  if(!m.trade_date)return {level:"none",label:"无资金流",note:"尚无资金流数据"};
+  const inflow=Number(m.inflow_rank_pct), outflow=Number(m.outflow_rank_pct);
+  const close=Number(m.close), high20=Number(m.high20), ma20=Number(m.ma20);
+  const ret1=Number(m.ret_1d_pct), dd20=Number(m.drawdown20_pct), vol=Number(m.amount_ratio20);
+  const nearHigh=Number.isFinite(close)&&Number.isFinite(high20)&&close>=high20*0.98;
+  const aboveMa=Number.isFinite(close)&&Number.isFinite(ma20)&&close>=ma20;
+  if(inflow>=80&&nearHigh){
+    return {level:"buy",label:"净流入+新高",note:`回测较优：净流入前20%且接近20日新高。15日净流出${m.outflow_10d_yi??"-"}亿，流入分位${m.inflow_rank_pct??"-"}%。`};
+  }
+  if(outflow>=80&&aboveMa&&Number(m.ret_20d_pct)>0){
+    return {level:"watch",label:"流出但趋势未坏",note:`分歧换手：净流出前20%，但仍在20日线上且20日趋势为正。先观察承接。`};
+  }
+  if(outflow>=80&&dd20<=-8&&vol>=1.5){
+    return {level:"risk",label:"放量流出",note:`高风险：净流出+放量+回撤，历史收益最差。`};
+  }
+  if(outflow>=80&&ret1<0){
+    return {level:"risk",label:"流出+下跌",note:`回测偏弱：净流出前20%且当日下跌，后续10/20日容易跑输。`};
+  }
+  if(outflow>=80&&dd20<=-8){
+    return {level:"risk",label:"流出+回撤",note:`回测偏弱：净流出前20%且20日回撤超过8%，不要只因跌多就抄底。`};
+  }
+  if(inflow>=80){
+    return {level:"ok",label:"净流入强",note:`净流入前20%，但未接近20日新高，信号弱于“净流入+新高”。`};
+  }
+  return {level:"none",label:"无明显信号",note:`资金流未进入主要买入/风险条件。15日净流出${m.outflow_10d_yi??"-"}亿。`};
+}
+function moneySignalCell(code){
+  const s=moneySignal(code);
+  const colors={buy:"#ef4444",watch:"#fbbf24",risk:"#22c55e",ok:"#f87171",none:"#64748b"};
+  return `<span title="${String(s.note).replace(/"/g,'&quot;')}" style="font-size:11px;color:${colors[s.level]||"#64748b"};font-weight:700">${s.label}</span>`;
+}
+
+async function loadList() {
+  $stat.textContent = "加载中...";
+  try {
+    const j = await (await fetch("/api/watchlist")).json();
+    await loadMoneyFlowMap();
+    render(j.items || []);
+    $stat.textContent = `共 ${j.count} 只 · ${new Date().toLocaleTimeString()}`;
+    loadFund();
+    if (!CUR && (j.items||[]).length) selectStock(j.items[0].code, j.items[0].name);
+  } catch (e) { $stat.textContent = "加载失败: " + e.message; }
+}
+async function loadFund() {
+  try {
+    const j = await (await fetch("/api/watchlist/fundamentals")).json();
+    FUND = {}; (j.items || []).forEach(x => FUND[x.code] = x);
+    // 补列表里的营收增速/毛利率(取最新一期)
+    document.querySelectorAll("tr.name-row").forEach(tr => {
+      const f = FUND[tr.dataset.code]; if (!f || !f.rows || !f.rows.length) return;
+      const r = f.rows[f.rows.length-1];
+      tr.querySelector(".c-rev").innerHTML = numCell(r.rev_yoy,'%');
+      tr.querySelector(".c-gm").innerHTML = (r.gm==null?'-':r.gm+'%');
+    });
+    if (CUR) renderDetailFund();
+  } catch (e) {}
+}
+function numCell(v, suf){ return (v==null)?'<span style="color:#475569">-</span>':`<span style="color:${v>=0?'#ef4444':'#22c55e'}">${v>=0?'+':''}${v}${suf||''}</span>`; }
+function cls(chg) { return chg > 0 ? "up" : chg < 0 ? "down" : "flat"; }
+
+function render(items) {
+  $empty.style.display = items.length ? "none" : "block";
+  $rows.innerHTML = items.map(it => {
+    const chg = (it.chg ?? null);
+    const chgTxt = chg==null ? "-" : `${chg>=0?"+":""}${chg.toFixed(2)}%`;
+    const last = (it.last ?? null);
+    const nm=(it.name||it.code).replace(/'/g,'');
+    return `<tr class="name-row ${it.code===CUR?'sel':''}" data-code="${it.code}" onclick="selectStock('${it.code}','${nm}')">
+      <td class="l"><span class="wl-nm">${it.name||it.code}</span><br><span style="color:#64748b;font-size:11px">${it.ts_code||it.code} ${it.industry||''}</span></td>
+      <td>${last==null?"-":last.toFixed(2)}</td>
+      <td class="${cls(chg||0)}">${chgTxt}</td>
+      <td>${moneySignalCell(it.code)}</td>
+      <td class="c-rev"><span class="dim">…</span></td>
+      <td class="c-gm"><span class="dim">…</span></td>
+      <td><button class="wl-del" data-code="${it.code}" onclick="event.stopPropagation();removeCode('${it.code}')">✕</button></td>
+    </tr>`;
+  }).join("");
+}
+
+function selectStock(code, name){
+  CUR = code;
+  document.querySelectorAll("tr.name-row").forEach(tr=>tr.classList.toggle("sel", tr.dataset.code===code));
+  const sig=moneySignal(code);
+  const sigColor={buy:"#ef4444",watch:"#fbbf24",risk:"#22c55e",ok:"#f87171",none:"#64748b"}[sig.level]||"#64748b";
+  // 中栏: 标题 + 财务表 + 历史基率表
+  document.getElementById("detail-tables").innerHTML=`
+    <div class="det-card"><div class="det-hd" id="d-title">${name||code} <span style="color:#64748b;font-size:12px">${code}</span></div><div style="font-size:12px;margin-bottom:6px;color:${sigColor}"><b>${sig.label}</b> <span style="color:#94a3b8">${sig.note}</span></div><div id="d-fund"></div></div>
+    <div class="det-card"><div class="det-hd">📊 历史相似片段基率</div><div id="d-analog"><span class="dim">加载中…</span></div></div>`;
+  // 右栏: 两个图(加大)
+  document.getElementById("detail-charts").innerHTML=`
+    <div class="det-card"><div class="det-hd">🛡️ 事件止损K线 <span class="dim" style="font-size:11px;font-weight:400">(下方柱状=每日资金净流出额，正绿负红)</span></div><div id="d-evstatus" style="font-size:12px;margin-bottom:4px"></div><div id="d-evchart" style="width:100%;height:520px"></div></div>
+    <div class="det-card"><div class="det-hd">📉 经典做T分时图 <span class="dim" id="d-tkpi" style="font-size:11px;font-weight:400"></span></div><div id="d-tchart" style="width:100%;height:380px"></div></div>`;
+  evChart=echarts.init(document.getElementById("d-evchart"));
+  tChart=echarts.init(document.getElementById("d-tchart"));
+  renderDetailFund();
+  loadEvtStop(code); loadClassic(code); loadAnalog(code);
+  setTimeout(()=>{ if(evChart)evChart.resize(); if(tChart)tChart.resize(); },120);
+}
+
+function renderDetailFund(){
+  const box=document.getElementById("d-fund"); if(!box) return;
+  const f=FUND[CUR];
+  if(!f||!f.rows||!f.rows.length){ box.innerHTML='<span class="dim" style="font-size:11.5px">无财务数据(新股/未覆盖或fundamentals.json待生成)</span>'; return; }
+  let h=`<div style="font-size:11px;color:#94a3b8;margin-bottom:3px">${f.ind||''} · 近3年报+最新一期(同比%, ROE当期)</div>`;
+  h+=`<table class="an-tbl"><thead><tr><th>期间</th><th>营收增速</th><th>扣非增速</th><th>毛利率</th><th>ROE</th></tr></thead><tbody>`;
+  h+=f.rows.slice().reverse().map(r=>`<tr><td>${r.period}</td><td>${numCell(r.rev_yoy,'%')}</td><td>${numCell(r.dedt_yoy,'%')}</td><td>${r.gm==null?'-':r.gm+'%'}</td><td>${r.roe==null?'-':r.roe+'%'}</td></tr>`).join("");
+  h+=`</tbody></table>`; box.innerHTML=h;
+}
+
+async function loadEvtStop(code){
+  const ownRequest=++EVT_REQUEST_NO;
+  try{
+    await loadMoneyFlowMap();
+    const response=await fetch(`/api/eventstop?code=${encodeURIComponent(code)}`);
+    const d=await response.json().catch(()=>({}));
+    if(ownRequest!==EVT_REQUEST_NO)return;
+    if(!response.ok)throw new Error(d.message||d.error||`HTTP ${response.status}`);
+    if(!d.ok){ document.getElementById("d-evstatus").innerHTML=`<span class="dim">${d.message||'无数据'}</span>`; evChart.clear(); return; }
+    const contract=QIKline.assertCompactPayload(d.k,"qfq");
+    document.getElementById("d-evstatus").innerHTML=`${contract.adjustLabel} · 现价 <b>${d.last}</b> · 🔴止损${d.pct_stop}${d.chand_active?` · 🟢吊灯${d.chand_stop}`:''} · 🟠日低${d.ev_low}${contract.qualityNotice ? ` · ${contract.qualityNotice}` : ""}`;
+    const k=d.k,n=k.dates.length;
+    const flow=flowSeriesForDates(code,k.dates);
+    evChart.setOption({animation:false,tooltip:{trigger:"axis"},
+      grid:[{left:50,right:14,top:12,height:330},{left:50,right:14,top:370,height:82}],
+      xAxis:[
+        {type:"category",data:k.dates,axisLabel:{color:"#94a3b8",fontSize:9}},
+        {type:"category",gridIndex:1,data:k.dates,axisLabel:{color:"#94a3b8",fontSize:9}}
+      ],
+      yAxis:[
+        {scale:true,axisLabel:{color:"#94a3b8",fontSize:10},splitLine:{lineStyle:{color:"#1e293b"}}},
+        {gridIndex:1,scale:true,axisLabel:{color:"#94a3b8",fontSize:10,formatter:v=>Number(v).toFixed(0)+"亿"},splitLine:{lineStyle:{color:"#1e293b"}}}
+      ],
+      dataZoom:[{type:"inside",xAxisIndex:[0,1],start:Math.max(0,(1-60/n)*100)},{type:"slider",xAxisIndex:[0,1],bottom:6,height:14,start:Math.max(0,(1-60/n)*100)}],
+      series:[{type:"candlestick",data:k.ohlc,itemStyle:{color:"#ef4444",color0:"#22c55e",borderColor:"#ef4444",borderColor0:"#22c55e"},
+        markLine:{silent:true,symbol:"none",data:[
+          ...(d.chand_active?[{yAxis:d.chand_stop,lineStyle:{color:"#22c55e",width:1.5},label:{formatter:"🟢吊灯 "+d.chand_stop,color:"#86efac",fontSize:9}}]:[]),
+          {yAxis:d.pct_stop,lineStyle:{color:"#ef4444",width:1.5},label:{formatter:"🔴止损 "+d.pct_stop,color:"#fca5a5",fontSize:9}},
+          {yAxis:d.ev_low,lineStyle:{color:"#f59e0b",width:1},label:{formatter:"🟠日低 "+d.ev_low,color:"#fbbf24",fontSize:9}}
+        ]}},
+        {name:"资金净流出额(亿)",type:"bar",xAxisIndex:1,yAxisIndex:1,data:flow,
+          itemStyle:{color:p=>flowColor(p.value)},barMaxWidth:14}
+      ]},true);
+    setTimeout(()=>evChart.resize(),50);
+  }catch(e){ if(ownRequest!==EVT_REQUEST_NO)return;evChart.clear(); document.getElementById("d-evstatus").textContent='K线加载失败: '+e.message; }
+}
+
+function fmtPct(v){return v==null?"—":`<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${v}%</span>`;}
+async function loadClassic(code){
+  try{
+    const d=await (await fetch(`/api/intraday_classic?code=${encodeURIComponent(code)}&freq=5min`)).json();
+    const kpi=document.getElementById("d-tkpi");
+    if(!d.ok){ if(kpi)kpi.innerHTML=`<span class="dim">${d.message||'非交易时段/无分时'}</span>`; tChart.clear(); return; }
+    const c=d.cur;
+    const sigTag=c.signal==="低吸"?'<span class="tag tbuy">🟢低吸</span>':(c.signal==="高抛"?'<span class="tag tsell">🔴高抛</span>':'<span class="tag tno">观望</span>');
+    if(kpi)kpi.innerHTML=`现价${c.price} 乖离${fmtPct(c.bias)} ${sigTag}`;
+    const buy=d.signals.filter(s=>s.type==="低吸").map(s=>[s.t,s.price]);
+    const sell=d.signals.filter(s=>s.type==="高抛").map(s=>[s.t,s.price]);
+    const L=(name,data,color,type)=>({name,type:"line",data,smooth:false,showSymbol:false,lineStyle:{width:type==="b"?2:1,color,type:type==="d"?"dashed":"solid"},z:type==="b"?5:2});
+    tChart.setOption({backgroundColor:"transparent",tooltip:{trigger:"axis"},
+      legend:{data:["收盘","MA","布林上","布林下","ATR上","ATR下","VWAP"],textStyle:{color:"#94a3b8",fontSize:10},top:0},
+      grid:{left:46,right:14,top:26,bottom:24},
+      xAxis:{type:"category",data:d.times,axisLabel:{color:"#94a3b8",fontSize:9}},
+      yAxis:{scale:true,axisLabel:{color:"#94a3b8",fontSize:10},splitLine:{lineStyle:{color:"#1e293b"}}},
+      series:[L("收盘",d.close,"#e2e8f0","b"),L("MA",d.ma,"#60a5fa","s"),
+        L("布林上",d.boll_up,"#a78bfa","d"),L("布林下",d.boll_dn,"#a78bfa","d"),
+        L("ATR上",d.atr_up,"#f59e0b","d"),L("ATR下",d.atr_dn,"#f59e0b","d"),L("VWAP",d.vwap,"#34d399","s"),
+        {name:"低吸",type:"scatter",data:buy,symbol:"triangle",symbolSize:10,itemStyle:{color:"#22c55e"},z:9},
+        {name:"高抛",type:"scatter",data:sell,symbol:"triangle",symbolRotate:180,symbolSize:10,itemStyle:{color:"#ef4444"},z:9}]
+    },true);
+    setTimeout(()=>tChart.resize(),50);
+  }catch(e){}
+}
+
+async function loadAnalog(code){
+  const box=document.getElementById("d-analog"); if(!box)return;
+  try{
+    const d=await (await fetch(`/api/intraday_classic/analog?code=${encodeURIComponent(code)}`)).json();
+    if(!d.ok){ box.innerHTML=`<span class="dim">${d.message||'历史基率不可用'}</span>`; return; }
+    let h=`<div class="dim" style="font-size:11.5px;margin-bottom:4px">${d.name||d.code} 历史"跌破20日布林下轨(超卖)" ${d.n_analog}次, 之后怎么走(经验·非预测)。当前: ${d.current_oversold?'<b class="neg">已超卖</b>':'未超卖'} · ${d.current_downtrend?'<b class="neg">下跌趋势中</b>':'非下跌趋势'} · 距20日高 ${d.cur_drawdown}%</div>`;
+    h+='<table class="an-tbl"><thead><tr><th>之后</th><th>反弹概率</th><th>中位收益</th><th>继续跌>3%</th><th>跌势中·反弹</th><th>·中位</th></tr></thead><tbody>';
+    h+=(d.horizons||[]).map(x=>{const a=x.all,dn=x.down;
+      return `<tr><td>+${x.d}日</td><td>${a.pos_pct}%</td><td class="${a.med>=0?'pos':'neg'}">${a.med}%</td><td class="neg">${a.fall_pct}%</td><td>${dn?dn.pos_pct+'%':'-'}</td><td class="${dn&&dn.med>=0?'pos':'neg'}">${dn?dn.med+'%':'-'}</td></tr>`;}).join('');
+    h+='</tbody></table><div class="note">"反弹概率"=超卖后该天数收正占比。短期(5日)常≈50%甚至更低→别急抄底;20日尺度通常更高。"跌势中"列=和当前最像的样本。<b>历史基率非预测</b>。</div>';
+    box.innerHTML=h;
+  }catch(e){ box.innerHTML='<span class="dim">加载失败</span>'; }
+}
+
+// 搜索添加
+async function addCode(code){ await fetch("/api/watchlist/add",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})}); $q.value=""; $sug.style.display="none"; loadList(); }
+async function removeCode(code){ await fetch("/api/watchlist/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})}); if(code===CUR)CUR=""; loadList(); }
+let debTimer=null;
+$q.addEventListener("input",()=>{clearTimeout(debTimer);debTimer=setTimeout(doSearch,120);});
+$q.addEventListener("keydown",(e)=>{ if(e.key==="Enter"){const f=$sug.querySelector("li");if(f)f.click();} else if(e.key==="Escape")$sug.style.display="none"; });
+document.addEventListener("click",(e)=>{ if(!$sug.contains(e.target)&&e.target!==$q)$sug.style.display="none"; });
+async function doSearch(){
+  const q=$q.value.trim(); if(!q){$sug.style.display="none";return;}
+  try{
+    const j=await (await fetch("/api/search?q="+encodeURIComponent(q))).json();
+    const hits=j.hits||[]; if(!hits.length){$sug.style.display="none";return;}
+    $sug.innerHTML=hits.map(h=>`<li data-code="${h.code}"><span class="code">${h.code}</span>${h.name}<span class="industry">${h.industry||""}</span></li>`).join("");
+    $sug.querySelectorAll("li").forEach(li=>li.addEventListener("click",()=>addCode(li.dataset.code)));
+    $sug.style.display="block";
+  }catch(e){ $sug.style.display="none"; }
+}
+window.addEventListener("resize",()=>{ if(evChart)evChart.resize(); if(tChart)tChart.resize(); });
+document.getElementById("refresh").addEventListener("click",loadList);
+loadList();
+setInterval(loadList,60000);
+</script>
+</body>
+</html>

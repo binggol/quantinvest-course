@@ -1,0 +1,175 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>组合配置 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .sub{color:#94a3b8;line-height:1.7;margin-bottom:14px;font-size:13px}
+  .upd{color:#64748b;font-size:12px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border:1px solid #1e293b;padding:6px 10px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#111827;color:#94a3b8;font-weight:600}
+  .big{font-size:30px;font-weight:800;color:#34d399}
+  .wt{color:#7dd3fc;font-weight:700}
+  .pos{color:#34d399}.neg{color:#f87171}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;color:#cbd5e1;font-size:12.5px;line-height:1.7;margin-top:12px}
+  .warn{color:#fbbf24}
+  .ov{background:#13203a;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;margin-top:10px;font-size:13px}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>整本策略书一览:<b>四腿市场中性组合</b>(主300季频对冲 + 抢跑/PEAD/回购 三条事件腿)的<b>权重、各腿夏普、两两相关、合并夏普</b>。核心是<b>近零相关</b>(G-K广度)——各腿独立下注,合起来夏普≈2.3。RSRS是<b>独立方向择时overlay</b>(给指数/ETF仓位用,不并入中性book)。按此权重分配你的中性资金。</div></details>
+  <div class="wrap">
+    <div class="card" style="border-color:#2a4a6a;background:#13203a">
+      <div style="font-size:16px;font-weight:700;color:#7dd3fc;margin-bottom:8px">📖 生产体系操作指南(一页看全)</div>
+      <table style="border:none">
+        <tr><td style="border:none;color:#34d399;font-weight:700;white-space:nowrap;vertical-align:top">① 中性资金</td>
+            <td style="border:none">按下方权重分六腿:<b>主300 46% / 回购 15% / 质量 15% / 抢跑 8% / PEAD 8% / 指数纳入 8%</b>(合并夏~2.47)。牛熊都赚、与市场涨跌无关。</td></tr>
+        <tr><td style="border:none;color:#fbbf24;font-weight:700;white-space:nowrap;vertical-align:top">② 方向资金</td>
+            <td style="border:none">看 <a href="/rsrs" style="color:#7dd3fc">/rsrs</a>:🟢绿灯=满仓对应指数ETF、🔴红灯=空仓现金。独立overlay,翻转邮件来才次日开盘调仓。</td></tr>
+        <tr><td style="border:none;color:#60a5fa;font-weight:700;white-space:nowrap;vertical-align:top">③ 每日操作</td>
+            <td style="border:none"><a href="/trade" style="color:#7dd3fc">/trade</a> 主腿季频调仓 · <a href="/repo" style="color:#7dd3fc">/repo</a> 回购建仓 · <a href="/runup" style="color:#7dd3fc">/runup</a> 抢跑清单 · <a href="/index_inclusion_pro" style="color:#7dd3fc">/index_inclusion_pro</a> 纳入实盘。<b>有动作才发邮件</b>,平时不用管;下单自查停牌/涨停。</td></tr>
+        <tr><td style="border:none;color:#a78bfa;font-weight:700;white-space:nowrap;vertical-align:top">④ 研究平台</td>
+            <td style="border:none"><a href="/alphagen" style="color:#7dd3fc">/alphagen</a>·<a href="/rdquant" style="color:#7dd3fc">/rdquant</a>·<a href="/rdagent" style="color:#7dd3fc">/rdagent</a> 任何挖的因子<b>自动过正交关卡</b>(已证:公式/RL/标准因子 0增量,被低波动-换手-套牢盘簇吸收)。<a href="/research" style="color:#7dd3fc">/research</a> 记结论防重测。</td></tr>
+        <tr><td style="border:none;color:#94a3b8;font-weight:700;white-space:nowrap;vertical-align:top">核心原理</td>
+            <td style="border:none;color:#cbd5e1">增量来自<b>不相关的赌注(G-K广度)</b>,不是更强的因子。事件腿命中率1/8(回购成),因子挖掘0/200+。剩余增量在执行质量/打新/L2数据。</td></tr>
+      </table>
+    </div>
+    <div id="content">加载中…</div>
+    <div id="holdings"></div>
+    <div id="evo"></div></div>
+<script src="/static/kline_contract.js"></script>
+<script src="/static/money_flow_spark.js"></script>
+<script>
+function pct(x){return x==null?'-':(x*100).toFixed(1)+'%';}
+function unlockCell(x){
+  const u=(x&&x.unlock_info)||{};
+  if(!u.label||u.label==="无解禁数据") return '<span style="color:#64748b">—</span>';
+  const c=u.status==="high"?"#f87171":(u.status==="watch"?"#fbbf24":"#94a3b8");
+  return `<span title="${String(u.label).replace(/"/g,'&quot;')}" style="color:${c};font-size:11px">${u.label}</span>`;
+}
+function moneyOutflowBadge(x){
+  const m=(x&&x.money_outflow)||{};
+  if(!m.status||m.status==="none")return "";
+  const flowColor=v=>Number(v)>0?"#22c55e":(Number(v)<0?"#ef4444":"#94a3b8");
+  const label=m.status==="high"?"资金流出前10%":"资金流出前20%";
+  const net10=m.outflow_10d_yi==null?"-":Number(m.outflow_10d_yi).toFixed(2);
+  const days=(m.outflow_10d_daily||[]).map(d=>`<span style="color:${flowColor(d.outflow_net_yi)}">${String(d.date||"").slice(5)}:${d.outflow_net_yi==null?"-":Number(d.outflow_net_yi).toFixed(2)}</span>`).join(" / ");
+  const title=`${m.label||label}: 当日净流出${m.outflow_net_yi??"-"}亿, 15日净流出${net10}亿, 15日主力净额${m.main_net_10d_yi??"-"}亿, 15日净额/成交额${m.main_net_10d_ratio_pct??"-"}%, 流出分位${m.outflow_rank_pct??"-"}%, ${m.trade_date||""}`;
+  const spark=window.moneyFlowSparkHtml?moneyFlowSparkHtml(x.code||x.ts_code||x.symbol,m):"";
+  return ` <span title="${title.replace(/"/g,'&quot;')}" style="display:inline-block;color:${flowColor(m.outflow_10d_yi)};font-size:11px;font-weight:600">15日净流出${net10}亿</span><span style="display:block;color:#94a3b8;font-size:10px;line-height:1.35">日:${days||"-"}</span>${spark}`;
+}
+function legStr(ls){return (ls||[]).map(x=>{
+  if(typeof x==='string')return x;
+  let s=x.leg+'#'+x.rank;
+  if(x.leg==='回购'&&x.to_close!=null)s+=`<span title="回购腿持60交易日, 距平仓还剩${x.to_close}日(已持${x.held_td!=null?x.held_td:'?'}日)" style="color:#fbbf24;font-size:10px">(距平${x.to_close}日)</span>`+(x.cancel_type?` <span title="注销型回购=总股本减少EPS被动提升, 真利好(验证60日+3.09% vs 全部+2.07%)" style="color:#86efac;font-size:10px">✓注销型</span>`:``);
+  return s;
+}).join(' / ');}
+fetch("/api/combo_holdings").then(r=>r.json()).then(d=>{
+  const hs=d.holdings||[]; if(!hs.length) return;
+  const nflag=d.n_hot_flag||0, nmarg=d.n_margin_flag||0, nflow=hs.filter(r=>r.money_outflow&&(r.money_outflow.status==="high"||r.money_outflow.status==="watch")).length;
+  let h=`<div class="card"><b>📋 组合总买入清单(落地)</b> <span style="color:#64748b;font-size:12px">更新 ${d.updated||'-'} · ${d.n_stocks}只 · 各腿Top${d.topn}等权×腿权重汇总</span>`+
+    (nflag?`<div style="color:#f87171;font-size:12px;margin:4px 0 2px">🔥 ${nflag}只在同花顺热榜已标红 — <b>留痕不剔除</b>。⚠️注意周期: 热榜是<b>20日中期反转</b>(-3.2%/t-14), 但<b>次日短线反而有动量(实测+0.48% vs 非热榜-0.07%)</b>。次日/短线买入<b>别因红标剔除</b>; 中期持有(月+)才警惕反转。减不减仓人工决定(热榜 ${d.hot_as_of||'-'})</div>`:'')+
+    (nmarg?`<div style="color:#fb923c;font-size:12px;margin:4px 0 2px">🟠 ${nmarg}只毛利率同比严重恶化(基本面变差)已标橙 — 负面信号, 验证空头侧IR+1.3, 留痕不剔除, 人工决定减仓(毛利数据 ${d.margin_as_of||'-'})</div>`:'')+
+    ((d.n_inv_flag||0)?`<div style="color:#fff;background:#000;border:1px solid #f00;font-size:12.5px;margin:4px 0 2px;padding:4px 8px;border-radius:6px;font-weight:700">☠️ ${d.n_inv_flag}只【证监会立案调查】=死亡信号一票否决 — 验证立案后120日-8.67%/<b>崩盘率53%</b>/胜35%。持仓里有<b>无条件清仓</b>(立案 ${d.inv_as_of||'-'})。这是最强避雷。</div>`:'')+
+    ((d.n_double_flag||0)?`<div style="color:#fff;background:#991b1b;font-size:12.5px;margin:4px 0 2px;padding:4px 8px;border-radius:6px;font-weight:600">🚨 ${d.n_double_flag}只【热榜/毛利恶化/龙虎榜净卖 ≥2信号同亮】=高危 — 验证: <b>双亮20日超额-3.27%/胜31%</b>(vs 单信号-0.44%, 同尺度坏信号复合)。比单标记强得多, 强烈建议人工评估减仓(留痕不剔除)</div>`:'')+
+    ((d.n_low_liq||0)?`<div style="color:#fbbf24;font-size:12px;margin:4px 0 2px">💧 ${d.n_low_liq}只小容量(20日均成交<2亿) — 真下单冲击成本大/可能买不进, 大资金减配或分批慢买, 别按等权硬怼</div>`:'')+
+    ((d.n_lev_flag||0)?`<div style="color:#c084fc;font-size:12px;margin:4px 0 2px">⚡ ${d.n_lev_flag}只融资净买入前20%=杠杆透支 — <b>弱避雷</b>(反向IC-0.0155, 比热榜弱很多), 标记不剔除供参考(杠杆数据 ${d.lev_as_of||'-'})</div>`:'')+
+    ((d.n_lhb_flag||0)?`<div style="color:#f472b6;font-size:12px;margin:4px 0 2px">📉 ${d.n_lhb_flag}只龙虎榜净卖出(出货砸盘) — <b>避雷</b>(验证净卖股T+1后5日-2.19%, 三年全负, 强度≈热榜), 标记不剔除人工判断(龙虎榜 ${d.lhb_as_of||'-'})</div>`:'')+
+    (nflow?`<div style="color:#fbbf24;font-size:12px;margin:4px 0 2px">资金流出预警 ${nflow}只 — 大单+超大单净额/成交额处于流出前20%, 个股验证后续1/3/5/10/20日跑输; 标记不剔除, 下单前核查。</div>`:'')+
+    `<div style="color:#64748b;font-size:12px;margin:4px 0 8px">${d.note||''}</div>`+
+    `<table><thead><tr><th>代码</th><th>名称</th><th>目标权重</th><th title="20日均成交额(亿元)=流动性容量。<2亿💧=真下单冲击成本大/大资金买不进, 该减配或分批慢买, 别按等权硬怼。大资金尤其看这列。" style="cursor:help">日均成交ⓘ</th><th>解禁/协转</th><th>来源腿</th></tr></thead><tbody>`;
+  h+=hs.map(r=>{
+    const m=(r.legs||[]).length>1, hot=r.hot_avoid, marg=r.margin_avoid, lowliq=r.low_liq, lev=r.lev_avoid, dbl=r.danger_double, lhbf=r.lhb_avoid;
+    const lhbBadge=lhbf?` <span title="龙虎榜净卖出${r.lhb_net_pct}%(出货砸盘); 验证净卖股T+1后5日-2.19%三年全负, 强度≈热榜; 标记不剔除" style="color:#f472b6;font-size:11px">📉龙虎榜净卖${r.lhb_net_pct!=null?'·'+r.lhb_net_pct+'%':''}</span>`:'';
+    const levBadge=lev?` <span title="融资净买入占成交额${r.lev_mbf}%(前20%)=杠杆资金集中流入透支; 反向弱信号IC-0.0155; 标记不剔除" style="color:#c084fc;font-size:11px">⚡杠杆${r.lev_mbf!=null?'·'+r.lev_mbf+'%':''}</span>`:'';
+    const invBadge=r.investigation?` <span title="证监会立案调查=死亡信号(验证立案后120日-8.67%/崩盘率53%); 一票否决硬黑名单, 持仓应清" style="color:#fff;background:#000;border:1px solid #f00;font-size:11px;padding:1px 6px;border-radius:6px;font-weight:700">☠️立案调查</span>`:``;
+    const dblBadge=dbl?` <span title="热榜∩毛利恶化 双信号同亮=高危(验证: 双亮20日超额-3.27%/胜31% vs 单信号-0.44%, 同尺度坏信号复合)。留痕不剔除, 强烈建议人工评估减仓" style="color:#fff;background:#991b1b;font-size:11px;padding:1px 6px;border-radius:6px;font-weight:700">🚨双亮高危</span>`:'';
+    const bg=dbl?'rgba(153,27,27,0.30)':(hot?'rgba(248,113,113,0.14)':(marg?'rgba(251,146,60,0.12)':(m?'rgba(52,211,153,0.12)':'')));
+    const nameSty=dbl?'text-align:left;color:#fca5a5;font-weight:700':(hot?'text-align:left;color:#f87171;font-weight:600':(marg?'text-align:left;color:#fb923c;font-weight:600':'text-align:left'));
+    const hotBadge=hot?` <span title="当前同花顺热榜 rank${r.hot_rank} 连续${r.hot_days}日; 关注度透支未来20日跑输-3.2%/t-14; 留痕不剔除" style="color:#f87171;font-size:11px">🔥热榜${r.hot_top20?'·Top20':''}</span>`:'';
+    const margBadge=marg?` <span title="毛利率同比变化${r.dgm}pct(当前${r.gm}%); 基本面恶化, 验证空头侧IR+1.3; 留痕不剔除" style="color:#fb923c;font-size:11px">🟠毛利恶化${r.dgm!=null?'·'+r.dgm:''}</span>`:'';
+    const advTxt=r.adv_yi!=null?`<span style="color:${lowliq?'#fbbf24':'#94a3b8'}">${r.adv_yi}亿${lowliq?' 💧':''}</span>`:'<span style="color:#475569">-</span>';
+    const flowBadge=moneyOutflowBadge(r);
+    return `<tr${bg?` style="background:${bg}"`:''} class="combo-row" data-code="${r.code}" onclick="toggleFund('${r.code}')" style="cursor:pointer${bg?`;background:${bg}`:''}"><td style="text-align:left">${r.code}</td><td style="${nameSty}">${r.name}${flowBadge}</td><td class="wt">${r.weight_pct}%</td><td style="text-align:right;font-size:12px">${advTxt}</td><td style="text-align:left;font-size:12px">${unlockCell(r)}</td><td style="text-align:left;font-size:12px">${legStr(r.legs)}${m?' <span style="color:#34d399;font-size:11px">🔁多腿确认</span>':''}${invBadge}${dblBadge}${hotBadge}${margBadge}${lhbBadge}${levBadge}</td></tr>
+    <tr class="fund-sub" data-code="${r.code}" style="display:none"><td colspan="6" style="background:#0b1220;padding:6px 12px"><div id="fund-${r.code.replace('.','_')}" style="font-size:12px;color:#94a3b8">点击加载财务…</div></td></tr>`;
+  }).join("");
+  h+=`</tbody></table><div style="font-size:11px;color:#64748b;margin-top:5px">💡 点任一行展开该股 近3年报+最新一期 财务(营收/扣非增速·毛利率·ROE)</div></div>`;
+  document.getElementById("holdings").innerHTML=h;
+}).catch(e=>{});
+let _FUND={};
+function numC(v,suf){ return (v==null)?'<span style="color:#475569">-</span>':`<span style="color:${v>=0?'#ef4444':'#22c55e'}">${v>=0?'+':''}${v}${suf||''}</span>`; }
+function fundTable(f){
+  if(!f||!f.rows||!f.rows.length) return '<span style="color:#64748b">无财务数据(新股/未覆盖)</span>';
+  let h=`<div style="color:#94a3b8;margin-bottom:3px">${f.name||''} ${f.ind||''} · 近3年报+最新一期(同比%, ROE当期)</div>`;
+  h+='<table style="border-collapse:collapse;font-size:11.5px;width:auto"><thead><tr style="color:#94a3b8"><th style="text-align:left;padding:2px 12px 2px 0">期间</th><th style="padding:2px 12px">营收增速</th><th style="padding:2px 12px">扣非增速</th><th style="padding:2px 12px">毛利率</th><th style="padding:2px 12px">ROE</th></tr></thead><tbody>';
+  h+=f.rows.slice().reverse().map(r=>`<tr><td style="text-align:left;padding:2px 12px 2px 0;color:#cbd5e1">${r.period}</td><td style="text-align:right;padding:2px 12px">${numC(r.rev_yoy,'%')}</td><td style="text-align:right;padding:2px 12px">${numC(r.dedt_yoy,'%')}</td><td style="text-align:right;padding:2px 12px;color:#cbd5e1">${r.gm==null?'-':r.gm+'%'}</td><td style="text-align:right;padding:2px 12px;color:#cbd5e1">${r.roe==null?'-':r.roe+'%'}</td></tr>`).join('');
+  return h+'</tbody></table>';
+}
+async function toggleFund(code){
+  const sub=document.querySelector(`tr.fund-sub[data-code="${code}"]`); if(!sub) return;
+  const show=sub.style.display==='none'; sub.style.display=show?'':'none';
+  if(!show) return;
+  const box=document.getElementById('fund-'+code.replace('.','_'));
+  if(_FUND[code]){ box.innerHTML=fundTable(_FUND[code]); return; }
+  try{
+    const j=await (await fetch('/api/fundamentals_for?codes='+encodeURIComponent(code))).json();
+    _FUND[code]=(j.items||{})[code]; box.innerHTML=fundTable(_FUND[code]);
+  }catch(e){ box.innerHTML='<span style="color:#fca5a5">财务加载失败</span>'; }
+}
+let _snap={};
+Promise.all([fetch("/api/combo_history").then(r=>r.json()),fetch("/api/combo_holdings_history").then(r=>r.json())]).then(([d,hh])=>{
+  const vs=d.versions||[]; if(vs.length<2) return;
+  (hh.versions||[]).forEach(s=>_snap[s.weights]=s);
+  let h=`<div class="card"><b>📈 组合演进历史</b><div style="color:#64748b;font-size:12px;margin:4px 0 8px">每次加腿/调权记一版(夏普口径为各版当时共同回测期, 窗口略异)。点「查看清单」看该版买入清单(快照从启用此功能起记录)。</div>`+
+    `<table><thead><tr><th>日期</th><th>腿数</th><th>权重</th><th>合并夏普</th><th>买入清单</th></tr></thead><tbody>`;
+  vs.forEach((v,i)=>{ const up=i>0&&v.sharpe>=vs[i-1].sharpe; const has=_snap[v.weights];
+    h+=`<tr class="evrow" data-w="${v.weights}" style="cursor:${has?'pointer':'default'}"><td>${v.date}</td><td>${v.n_legs}腿</td><td style="text-align:left;font-size:12px">${v.weights}</td><td><b>${v.sharpe}</b>${i>0?` <span style="color:${up?'#34d399':'#f87171'};font-size:11px">${up?'▲':'▼'}</span>`:''}</td><td>${has?`<span style="color:#7dd3fc">📋查看(${has.n_stocks})</span>`:'<span style="color:#475569">无快照</span>'}</td></tr>`+
+       (v.note?`<tr><td></td><td colspan=4 style="text-align:left;color:#94a3b8;font-size:12px">${v.note}</td></tr>`:'');
+  });
+  h+=`</tbody></table></div>`;
+  document.getElementById("evo").innerHTML=h;
+  document.querySelectorAll('.evrow').forEach(tr=>tr.onclick=()=>{
+    const w=tr.getAttribute('data-w'), s=_snap[w]; if(!s) return;
+    const nx=tr.nextElementSibling;
+    if(nx&&nx.classList.contains('snap')){nx.remove();return;}
+    const td=document.createElement('tr');td.className='snap';
+    let t='<td colspan=5 style="background:#0b1220"><div style="padding:8px 12px"><b style="font-size:12px;color:#94a3b8">该版买入清单(Top'+s.holdings.length+', '+s.date+')</b><table style="margin-top:4px"><thead><tr><th>代码</th><th>名称</th><th>权重</th><th>腿</th></tr></thead><tbody>'+
+      s.holdings.map(r=>`<tr><td style="text-align:left">${r.code}</td><td style="text-align:left">${r.name}</td><td class="wt">${r.weight_pct}%</td><td style="text-align:left;font-size:12px">${legStr(r.legs)}</td></tr>`).join('')+'</tbody></table></div></td>';
+    td.innerHTML=t; tr.parentNode.insertBefore(td,tr.nextSibling);
+  });
+}).catch(e=>{});
+fetch("/api/portfolio").then(r=>r.json()).then(d=>{
+  if(!d.sleeves||!d.sleeves.length){document.getElementById("content").innerHTML=`<div class="card">${d.message||"暂无数据"}</div>`;return;}
+  let h=`<div class="hd">📦 组合配置 · ${d.sleeves.length}腿市场中性Book</div><div class="upd">更新 ${d.updated||"-"} · 共同回测 ${d.common_months||0} 月</div>`;
+  h+=`<div class="sub">${d.strategy||""}</div>`;
+  const c=d.combined||{};
+  h+=`<div class="card" style="text-align:center"><div style="color:#94a3b8;font-size:13px">合并夏普(${c.weights||""})</div>
+      <div class="big">${c.sharpe??'-'}</div>
+      <div style="color:#94a3b8;font-size:12px">年化 ${pct(c.ann)} · 最大回撤 ${pct(c.mdd)}</div></div>`;
+  h+=`<div class="card"><b>各腿配置</b><table><thead><tr><th>腿</th><th>权重</th><th>夏普</th><th>年化</th><th>最大回撤</th></tr></thead><tbody>`;
+  h+=d.sleeves.map(s=>`<tr><td>${s.name}</td><td class="wt">${(s.weight*100).toFixed(0)}%</td><td>${s.sharpe}</td><td class="${s.ann>=0?'pos':'neg'}">${pct(s.ann)}</td><td class="neg">${pct(s.mdd)}</td></tr>`).join("");
+  h+=`</tbody></table></div>`;
+  if(d.corr){
+    const ks=Object.keys(d.corr);
+    h+=`<div class="card"><b>两两相关性(近零=好)</b><table><thead><tr><th></th>${ks.map(k=>`<th>${k}</th>`).join("")}</tr></thead><tbody>`;
+    h+=ks.map(a=>`<tr><td>${a}</td>${ks.map(b=>{const v=d.corr[a][b];const col=a===b?'#64748b':(Math.abs(v)<0.3?'#34d399':'#fbbf24');return `<td style="color:${col}">${v}</td>`;}).join("")}</tr>`).join("");
+    h+=`</tbody></table></div>`;
+  }
+  if(d.rsrs_overlay&&d.rsrs_overlay.length){
+    h+=`<div class="ov"><b>🧭 RSRS 方向择时 overlay</b>(独立, 不并入中性book, 给指数/ETF仓位): `+
+       d.rsrs_overlay.map(x=>`${x.name} <b style="color:${x.state==='持有'?'#34d399':'#f87171'}">${x.state}</b>(${x.score})`).join(" · ")+`</div>`;
+  }
+  if(d.note) h+=`<div class="note"><span class="warn">⚠️ </span>${d.note}</div>`;
+  document.getElementById("content").innerHTML=h;
+}).catch(e=>{document.getElementById("content").innerHTML="加载失败: "+e;});
+</script>
+</body>
+</html>

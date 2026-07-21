@@ -1,0 +1,239 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>资金流出验证 | quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  :root{--bg:#071013;--panel:#101820;--line:#29404b;--text:#e7eef2;--muted:#8ea3ad;--red:#f05d5e;--amber:#f2b84b;--green:#3fcf8e}
+  body{background:var(--bg);color:var(--text);font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC","Source Han Sans SC","Segoe UI",system-ui,-apple-system,sans-serif}
+  .topnav{font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC","Source Han Sans SC","Segoe UI",system-ui,-apple-system,sans-serif}
+  .wrap{max-width:1220px;margin:0 auto;padding:16px}
+  .head{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;margin:6px 0 16px}
+  .title{font-size:24px;font-weight:800}.sub{font-size:12.5px;color:var(--muted);line-height:1.7}
+  .actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+  .btn{border:1px solid #31515f;background:#16313a;color:var(--text);border-radius:6px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{background:#1d3f4a}.btn:disabled{opacity:.55;cursor:not-allowed}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+  .kpi{font-size:30px;font-weight:900;margin:8px 0}.bad{color:var(--red)}.watch{color:var(--amber)}.ok{color:var(--green)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--panel);border:1px solid var(--line)}
+  th,td{padding:8px 10px;border-bottom:1px solid #223643;text-align:right;white-space:nowrap}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  th{color:var(--muted);background:#0d171c}
+  .pos{color:var(--red)}.neg{color:var(--green)}.muted{color:var(--muted)}
+  .err{border:1px solid #7f2f31;background:#2b1215;color:#ffc2c2;border-radius:8px;padding:12px}
+  .stock-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 8px;flex-wrap:wrap}
+  .stock-count{font-size:12px;color:var(--muted)}
+  .tablebox{max-height:720px;overflow:auto;border:1px solid var(--line)}
+  .tablebox table{border:none}
+  .tablebox thead th{position:sticky;top:0;z-index:1}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}.head{display:block}table{font-size:11px}th,td{padding:7px 6px}}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="title">资金流出验证</div>
+      <div class="sub">个股：大单+超大单净额/成交额；市场：全市场聚合净额/成交额。验证流出是否领先后续下跌，并测试净流入买入条件。</div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="refreshBtn" type="button" onclick="refreshMoneyOutflow()">刷新资金流</button>
+      <div class="sub" id="refreshStatus"></div>
+      <div class="sub" id="updated"></div>
+    </div>
+  </div>
+  <div id="app">加载中...</div>
+</div>
+<script src="/static/kline_contract.js"></script>
+<script src="/static/money_flow_spark.js"></script>
+<script>
+let MONEY_OUTFLOW_DATA=null;
+let STOCK_SORT={key:"outflow_net_yi",dir:"desc"};
+let STOCK_SHOW_ALL=false;
+let SECTOR_SORT={key:"outflow_net_yi",dir:"desc"};
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function num(v){return v===null||v===undefined||Number.isNaN(Number(v))?null:Number(v)}
+function pct(v){if(v===null||v===undefined||Number.isNaN(Number(v)))return '<span class="muted">-</span>'; return `<span class="${Number(v)>=0?'pos':'neg'}">${Number(v)>=0?'+':''}${Number(v).toFixed(2)}%</span>`}
+function plain(v){return v===null||v===undefined?'-':v}
+function flowColor(v){return Number(v)>0?"#22c55e":(Number(v)<0?"#ef4444":"#94a3b8")}
+function horizonRows(summary){
+  return [1,3,5,10,20].map(h=>{
+    const r=(summary||{})[String(h)]||{};
+    return `<tr><td>T+${h}</td><td>${r.n_days||'-'}</td><td>${pct(r.outflow_avg_ret_pct)}</td><td>${pct(r.spread_vs_rest_pct)}</td><td>${pct(r.underperform_days_pct)}</td><td>${pct(r.fall_rate_pct)}</td><td>${plain(r.t_stat)}</td></tr>`;
+  }).join('');
+}
+function conditionRows(rows){
+  return (rows||[]).map(r=>{
+    const h5=r["5"]||{}, h10=r["10"]||{}, h20=r["20"]||{};
+    return `<tr><td>${esc(r.label)}</td><td>${r.n_days||'-'}</td><td>${r.avg_n||'-'}</td><td>${pct(h5.avg_ret_pct)}</td><td>${pct(h5.spread_pct)}</td><td>${pct(h10.avg_ret_pct)}</td><td>${pct(h10.spread_pct)}</td><td>${pct(h20.avg_ret_pct)}</td><td>${pct(h20.spread_pct)}</td><td>${pct(h10.win_rate_pct)}</td></tr>`;
+  }).join('');
+}
+function rollingInflowRows(rows){
+  return (rows||[]).map(r=>{
+    const h5=r["5"]||{}, h10=r["10"]||{}, h20=r["20"]||{};
+    return `<tr><td>${esc(r.label)}</td><td>Top ${r.top_pct}%</td><td>${r.n_days||'-'}</td><td>${r.avg_n||'-'}</td><td>${pct(h5.avg_ret_pct)}</td><td>${pct(h5.spread_pct)}</td><td>${pct(h10.avg_ret_pct)}</td><td>${pct(h10.spread_pct)}</td><td>${pct(h20.avg_ret_pct)}</td><td>${pct(h20.spread_pct)}</td><td>${pct(h10.win_rate_pct)}</td></tr>`;
+  }).join('');
+}
+function marketRows(summary){
+  const rows=[];
+  for(const key of ['outflow_3d','outflow_5d']){
+    const block=(summary||{})[key]||{};
+    for(const h of [1,3,5,10,20]){
+      const r=block[String(h)]||{};
+      rows.push(`<tr><td>${key==='outflow_3d'?'3日流出':'5日流出'}</td><td>T+${h}</td><td>${block.n_days||'-'}</td><td>${pct(r.index_avg_ret_pct)}</td><td>${pct(r.spread_vs_normal_pct)}</td><td>${pct(r.down_days_pct)}</td><td>${plain(r.t_stat)}</td></tr>`);
+    }
+  }
+  return rows.join('');
+}
+function setStockSort(key){
+  STOCK_SORT={key,dir:(STOCK_SORT.key===key&&STOCK_SORT.dir==="desc")?"asc":"desc"};
+  renderStockTable();
+}
+function stockHeader(key,label){
+  const mark=STOCK_SORT.key===key?(STOCK_SORT.dir==="desc"?" ▼":" ▲"):"";
+  return `<th style="cursor:pointer" onclick="setStockSort('${key}')">${label}${mark}</th>`;
+}
+function recentOutflow5(r){
+  if(Array.isArray(r.outflow_recent_5d)&&r.outflow_recent_5d.length)return r.outflow_recent_5d;
+  const all=Array.isArray(r.outflow_15d_daily)&&r.outflow_15d_daily.length?r.outflow_15d_daily:(r.outflow_10d_daily||[]);
+  return all.slice(-5).reverse();
+}
+function stockSortValue(row,key){
+  if(key.startsWith("recent_")){
+    const idx=Number(key.split("_")[1]);
+    const d=recentOutflow5(row)[idx]||{};
+    return num(d.outflow_net_yi);
+  }
+  if(key==="outflow_15d_yi")return num(row.outflow_15d_yi??row.outflow_10d_yi);
+  return num(row[key]);
+}
+function recentHeader(idx,label){
+  return stockHeader(`recent_${idx}`,label);
+}
+function stockRecentHeaders(rows){
+  const first=(rows||[]).find(r=>recentOutflow5(r).length);
+  const days=first?recentOutflow5(first):[];
+  return [0,1,2,3,4].map(i=>recentHeader(i,(days[i]&&days[i].date?String(days[i].date).slice(5):`近${i+1}`)+"净流出")).join("");
+}
+function sortStockRows(rows){
+  const key=STOCK_SORT.key,dir=STOCK_SORT.dir==="asc"?1:-1;
+  return (rows||[]).slice().sort((a,b)=>{
+    const av=stockSortValue(a,key),bv=stockSortValue(b,key);
+    if(av===null&&bv===null)return String(a.code||"").localeCompare(String(b.code||""));
+    if(av===null)return 1;
+    if(bv===null)return -1;
+    return (av-bv)*dir;
+  });
+}
+function stockRows(rows){
+  const sorted=sortStockRows(rows);
+  const shown=STOCK_SHOW_ALL?sorted:sorted.slice(0,200);
+  return shown.map((r,i)=>{
+    const recent=recentOutflow5(r);
+    const recentCells=[0,1,2,3,4].map(idx=>{
+      const d=recent[idx]||{};
+      return `<td style="color:${flowColor(d.outflow_net_yi)}">${d.outflow_net_yi==null?'-':Number(d.outflow_net_yi).toFixed(2)}</td>`;
+    }).join("");
+    const out15=r.outflow_15d_yi??r.outflow_10d_yi;
+    return `<tr>
+    <td>${i+1}. ${esc(r.code)}</td><td>${esc(r.name||'-')}</td><td>${r.trade_date||'-'}</td><td>${r.close??'-'}</td>
+    <td style="color:${flowColor(r.outflow_net_yi)}">${r.outflow_net_yi==null?'-':Number(r.outflow_net_yi).toFixed(2)}</td>
+    <td style="color:${flowColor(out15)}">${out15==null?'-':Number(out15).toFixed(2)}</td>
+    ${recentCells}
+    <td>${window.moneyFlowSparkHtml?moneyFlowSparkHtml(r.code,r):""}</td>
+    <td>${r.main_net_yi==null?'-':Number(r.main_net_yi).toFixed(2)}</td>
+    <td>${pct(r.main_net_ratio_pct)}</td><td>${pct(r.outflow_rank_pct)}</td>
+  </tr>`;
+  }).join('');
+}
+function toggleStockLimit(){
+  STOCK_SHOW_ALL=!STOCK_SHOW_ALL;
+  renderStockTable();
+}
+function renderStockTable(){
+  const box=document.getElementById("stock-outflow-table");
+  if(!box||!MONEY_OUTFLOW_DATA)return;
+  const rows=MONEY_OUTFLOW_DATA.latest_stock_flow_all||MONEY_OUTFLOW_DATA.latest_stock_outflow||[];
+  const total=(rows||[]).length;
+  const shown=STOCK_SHOW_ALL?total:Math.min(200,total);
+  box.innerHTML=`<div class="stock-toolbar"><button class="btn" type="button" onclick="toggleStockLimit()">${STOCK_SHOW_ALL?'只看前200':'显示全部'}</button><div class="stock-count">当前显示 ${shown}/${total} 只，排序后${STOCK_SHOW_ALL?'显示全部':'截取前200'}</div></div><div class="tablebox"><table><thead><tr>
+    <th>股票</th><th>简称</th><th>日期</th><th>收盘</th>
+    ${stockHeader("outflow_net_yi","净流出额(亿)")}${stockHeader("outflow_15d_yi","15日净流出额(亿)")}${stockRecentHeaders(rows)}<th>15日K线/资金</th>${stockHeader("main_net_yi","主力净额(亿)")}${stockHeader("main_net_ratio_pct","主力净额/成交额")}${stockHeader("outflow_rank_pct","流出分位")}
+  </tr></thead><tbody>${stockRows(rows)}</tbody></table></div>`;
+}
+function setSectorSort(key){
+  SECTOR_SORT={key,dir:(SECTOR_SORT.key===key&&SECTOR_SORT.dir==="desc")?"asc":"desc"};
+  renderSectorTable();
+}
+function sectorHeader(key,label){
+  const mark=SECTOR_SORT.key===key?(SECTOR_SORT.dir==="desc"?" ▼":" ▲"):"";
+  return `<th style="cursor:pointer" onclick="setSectorSort('${key}')">${label}${mark}</th>`;
+}
+function sectorRows(rows){
+  const key=SECTOR_SORT.key,dir=SECTOR_SORT.dir==="asc"?1:-1;
+  return (rows||[]).slice().sort((a,b)=>{
+    const av=num(a[key]),bv=num(b[key]);
+    if(av===null&&bv===null)return String(a.industry||"").localeCompare(String(b.industry||""));
+    if(av===null)return 1;
+    if(bv===null)return -1;
+    return (av-bv)*dir;
+  }).map((r,i)=>`<tr><td>${i+1}. ${esc(r.industry)}</td><td>${r.trade_date||'-'}</td><td>${r.n_stocks??'-'}</td><td style="color:${flowColor(r.outflow_net_yi)}">${r.outflow_net_yi==null?'-':Number(r.outflow_net_yi).toFixed(2)}</td><td>${r.main_net_yi==null?'-':Number(r.main_net_yi).toFixed(2)}</td><td>${r.amount_yi==null?'-':Number(r.amount_yi).toFixed(1)}</td><td>${pct(r.main_net_ratio_pct)}</td><td>${pct(r.median_outflow_ratio_pct)}</td></tr>`).join('');
+}
+function renderSectorTable(){
+  const box=document.getElementById("sector-outflow-table");
+  if(!box||!MONEY_OUTFLOW_DATA)return;
+  box.innerHTML=`<div class="tablebox"><table><thead><tr><th>板块</th><th>日期</th><th>股票数</th>${sectorHeader("outflow_net_yi","净流出额(亿)")}${sectorHeader("main_net_yi","主力净额(亿)")}${sectorHeader("amount_yi","成交额(亿)")}${sectorHeader("main_net_ratio_pct","净额/成交额")}${sectorHeader("median_outflow_ratio_pct","个股中位流出")}</tr></thead><tbody>${sectorRows(MONEY_OUTFLOW_DATA.sector_outflow)}</tbody></table></div>`;
+}
+async function refreshMoneyOutflow(){
+  const btn=document.getElementById("refreshBtn"), status=document.getElementById("refreshStatus");
+  btn.disabled=true; status.textContent="提交刷新...";
+  try{
+    const r=await (await fetch("/api/refresh/money_outflow",{method:"POST"})).json();
+    if(!r.ok){status.textContent=r.message||"刷新请求失败";btn.disabled=false;return;}
+    status.textContent=r.message||"已提交";
+    let tries=0;
+    const timer=setInterval(async()=>{
+      tries+=1;
+      try{
+        const s=await (await fetch("/api/refresh/status?_="+Date.now())).json();
+        if(s.kind&&s.kind!=="money_outflow")return;
+        if(s.msg)status.textContent=s.msg+(s.updated_at?` · ${s.updated_at}`:"");
+        if(s.state==="done"){clearInterval(timer);btn.disabled=false;status.textContent=s.msg||"刷新完成";load();}
+        else if(s.state==="error"){clearInterval(timer);btn.disabled=false;status.textContent=s.msg||"刷新失败";}
+        else if(tries>180){clearInterval(timer);btn.disabled=false;status.textContent="刷新仍在后台运行，请稍后重载页面";}
+      }catch(e){}
+    },4000);
+  }catch(e){status.textContent="提交失败: "+e;btn.disabled=false;}
+}
+async function load(){
+  const box=document.getElementById('app');
+  try{
+    const d=await (await fetch('/api/money_outflow?_='+Date.now())).json();
+    if(d.message){box.innerHTML=`<div class="err">${d.message}</div>`;return;}
+    MONEY_OUTFLOW_DATA=d;
+    document.getElementById('updated').textContent=`样本 ${d.start} ~ ${d.end} · 更新 ${d.updated}`;
+    const latest=((d.market||{}).latest)||{};
+    box.innerHTML=`
+      <div class="grid">
+        <section class="panel"><div class="sub">最新市场资金流</div><div class="kpi ${latest.market_net_ratio_pct<0?'bad':'ok'}">${pct(latest.market_net_ratio_pct)}</div><div class="sub">${latest.trade_date||'-'} · 3日流出 ${pct(latest.outflow_3d_pct)} · 5日流出 ${pct(latest.outflow_5d_pct)}</div></section>
+        <section class="panel"><div class="sub">结论</div><div class="kpi watch">净流出是风险项，净流入强更适合买入</div><div class="sub">个股净流出前20%后续明显跑输；近期绝对净流入额 Top5% 的股票在现有样本中有较好超额。</div></section>
+      </div>
+      <div class="panel"><h3>个股资金流出后续收益</h3><table><thead><tr><th>窗口</th><th>样本日</th><th>流出股票平均收益</th><th>相对其余股票</th><th>跑输天数</th><th>下跌概率</th><th>t值</th></tr></thead><tbody>${horizonRows((d.stock||{}).summary)}</tbody></table></div>
+      <div class="panel" style="margin-top:14px"><h3>买入近期净流入额高的股票 <span class="sub">每日按近3/5/10/15日净流入额或净流入/成交额排序</span></h3><table><thead><tr><th>排序口径</th><th>分组</th><th>样本日</th><th>日均股票数</th><th>5日收益</th><th>5日超额</th><th>10日收益</th><th>10日超额</th><th>20日收益</th><th>20日超额</th><th>10日胜率</th></tr></thead><tbody>${rollingInflowRows(((d.rolling_inflow||{}).summary)||[])}</tbody></table><div class="sub" style="margin-top:6px">${esc((d.rolling_inflow||{}).note||'')}</div></div>
+      <div class="panel" style="margin-top:14px"><h3>什么情况下买入更好 <span class="sub">同日横截面对比：条件股票 vs 当日其余股票</span></h3><table><thead><tr><th>条件</th><th>样本日</th><th>日均股票数</th><th>5日收益</th><th>5日超额</th><th>10日收益</th><th>10日超额</th><th>20日收益</th><th>20日超额</th><th>10日胜率</th></tr></thead><tbody>${conditionRows(((d.entry_conditions||{}).summary)||[])}</tbody></table><div class="sub" style="margin-top:6px">${esc((d.entry_conditions||{}).note||'')}</div></div>
+      <div class="panel" style="margin-top:14px"><h3>大盘资金流出后续沪深300收益</h3><table><thead><tr><th>信号</th><th>窗口</th><th>触发日</th><th>指数收益</th><th>相对正常日</th><th>下跌概率</th><th>t值</th></tr></thead><tbody>${marketRows((d.market||{}).summary)}</tbody></table></div>
+      <div class="panel" style="margin-top:14px"><h3>板块资金流出排行 <span class="sub">按板块净流出额监测；点击表头可排序</span></h3><div id="sector-outflow-table"></div></div>
+      <div class="panel" style="margin-top:14px"><h3>最新资金流出最重股票 <span class="sub">默认按净流出额排序，显示前200；可切换全部显示，点击表头可排序；15日字段拆出最近5个交易日变化</span></h3><div id="stock-outflow-table"></div></div>`;
+    renderSectorTable();
+    renderStockTable();
+  }catch(e){box.innerHTML=`<div class="err">加载失败: ${e}</div>`;}
+}
+load();
+</script>
+</body>
+</html>
+

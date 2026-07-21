@@ -1,0 +1,38 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>资产注入定增 · quantinvest</title><link rel="stylesheet" href="/static/style.css"/>
+<style>
+.wrap{max-width:920px;margin:0 auto;padding:14px}
+.hero{background:linear-gradient(90deg,#1e3a5f,#0f172a);border:1px solid #2a4a6a;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.hero .big{font-size:22px;font-weight:800}.hero .sub{color:#94a3b8;font-size:12px;margin-top:4px}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:13px 16px;margin-bottom:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #1e293b;padding:6px 9px;text-align:left}
+th{color:#94a3b8;font-weight:600}.green{color:#86efac}.meta{color:#64748b;font-size:12px;line-height:1.7}
+.win{font-size:11px;padding:1px 7px;border-radius:7px;background:#14532d;color:#86efac}
+</style></head><body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <div class="hero"><div class="big">长期锁定定增样本</div>
+  <div class="sub">3年、5年锁定记录的历史研究样本；交易类型与期限均以逐笔公告为准。</div></div>
+  <div id="body"><div class="card">加载中…</div></div>
+  <div class="card" style="background:#0d1a14;border-color:#1f3a2a">
+    <div style="font-weight:700;color:#86efac;margin-bottom:5px">研究口径</div>
+    <div class="meta">
+    <b>筛选</b>: 东方财富增发记录中明确标注3年或5年锁定期、且仍在研究窗口内的已发行批次。<br>
+    <b>识别</b>: 长期限只是候选标签，不自动等同于资产注入、重组或某一法定期限；需结合发行预案、认购对象、发行结果和专项承诺。<br>
+    <b>期限</b>: 同一批次可能并存多个认购对象和多档限售期，解禁起算日及最终日期以官方公告证据为先。<br>
+    <b>历史样本</b>: gate_dingzeng_panel/modes 的收益统计用于研究复核，不代表单个项目结果。
+    </div>
+  </div>
+</div>
+<script>
+fetch("/api/asset_injection").then(r=>r.json()).then(d=>{
+  const its=d.items||[];const body=document.getElementById("body");
+  if(!its.length){body.innerHTML='<div class="card">'+(d.message||'当前窗口内无资产注入型定增')+'</div>';return;}
+  let h='<div class="card"><div style="font-weight:700;margin-bottom:6px">资产注入定增清单('+d.n+'只·上市后约1年内) · 更新 '+(d.updated||'-')+'</div>';
+  h+='<table><thead><tr><th>代码</th><th>名称</th><th>上市日</th><th>距今</th><th>发行价</th><th>锁定</th></tr></thead><tbody>';
+  h+=its.map(x=>'<tr><td style="color:#64748b;font-size:12px">'+x.ts_code+'</td><td style="font-weight:600">'+x.name+'</td><td style="color:#94a3b8">'+x.list_date+'</td><td>'+x.days_since+'天'+(x.in_window?' <span class="win">窗口内</span>':'')+'</td><td>'+(x.issue_price!=null?x.issue_price:'-')+'</td><td style="color:#94a3b8;font-size:12px">'+x.lock+'</td></tr>').join('');
+  h+='</tbody></table></div>';body.innerHTML=h;
+}).catch(e=>{document.getElementById("body").innerHTML='<div class="card">加载失败</div>';});
+</script></body></html>

@@ -1,0 +1,158 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>🧬批次vs基线 清单对比 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1040px;margin:0 auto;padding:14px}
+  .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:13px}
+  select,input[type=number]{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:5px 8px;font-size:13px}
+  button{font-size:13px;padding:7px 16px;border-radius:7px;cursor:pointer;background:#166534;color:#fff;border:none}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .st{color:#94a3b8;font-size:12.5px}
+  .live{color:#86efac;font-size:12.5px;font-family:monospace}
+  .sum{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0;font-size:13px}
+  .chip{padding:3px 10px;border-radius:10px;font-weight:600}
+  .c-new{background:#14532d;color:#86efac}.c-both{background:#1e293b;color:#cbd5e1}.c-drop{background:#5f1d1d;color:#fca5a5}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{border:1px solid #1e293b;padding:4px 8px;text-align:center}
+  th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){text-align:left}
+  th{background:#111827;color:#94a3b8}
+  .scode{color:#7dd3fc;font-family:monospace}.sname{color:#cbd5e1}
+  tr.new{background:rgba(20,83,45,.35)}tr.drop{background:rgba(95,29,29,.3)}
+  .b-new{color:#86efac;font-weight:600}.b-drop{color:#fca5a5}.b-up{color:#86efac}.b-down{color:#fbbf24}
+  .dim{color:#64748b}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .hd{font-size:14px;color:#86efac;margin:18px 0 6px;font-weight:600}
+  .hrow{padding:6px 10px;border:1px solid #1e293b;border-radius:7px;margin-bottom:5px;cursor:pointer;font-size:12.5px;background:#0f172a}
+  .hrow:hover{border-color:#2a4a6a}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>验证 <b>"挖到的基本面因子真的改变了选股吗"</b>。同模型同池(<b>股票池可选 沪深300/中证500/中证1000</b>), <b>只因子集不同</b>: 基线(默认SOTA或指定批次) vs <b>🧬基本面批次</b>(含挖到的交叉因子), 各出次日买入清单并排。<b>🆕新增</b>=fund因子才选进的票, <b>掉出</b>=基线有但fund踢掉, <b>共有</b>=两边都选(看排名升降)。每次对比<b>留痕</b>(下方历史, 点开看当时清单), 方便跨天对比。<b>仅研究, 下单前自查停牌/涨停。</b></div></details>
+  <div class="wrap">
+    <div class="bar">
+      🧬批次 <select id="batch"><option value="">(暂无🧬批次)</option></select>
+      基线 <select id="baseline"><option value="">默认SOTA(原24因子)</option></select>
+      模型 <select id="model"><option>lgb</option><option>xgb</option><option>catboost</option><option>ridge</option><option>lasso</option><option>ols</option></select>
+      股票池 <select id="univ"><option value="csi300">沪深300</option><option value="csi500">中证500</option><option value="csi1000">中证1000</option></select>
+      Top<input id="topn" type="number" min="5" max="80" value="30" style="width:50px"/>
+      <button id="run">🔬 跑对比</button>
+      <button id="runall" style="background:#1e3a8a">🚀 一键全跑(所有模型)</button>
+      <span id="live" class="live"></span>
+    </div>
+    <div id="out" class="st" style="padding:8px">加载中…</div>
+
+    <div class="hd">🕘 对比留痕 (历史, 点开看当时清单)</div>
+    <div id="hist" class="st">加载中…</div>
+  </div>
+<script src="/static/unlock.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let POLL=null, LAST=null;
+function fillSel(sel, vals, keepFirst){
+  const cur=sel.value; const first=keepFirst?sel.options[0].outerHTML:"";
+  sel.innerHTML=first+vals.map(v=>`<option value="${v}">${v}</option>`).join('');
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+function diffTable(base, fund, topn){
+  const B={}, F={};
+  (base||[]).slice(0,topn).forEach(h=>B[h.code]={rank:h.rank,name:h.name,unlock_info:h.unlock_info});
+  (fund||[]).slice(0,topn).forEach(h=>F[h.code]={rank:h.rank,name:h.name,unlock_info:h.unlock_info});
+  const codes=[...new Set([...Object.keys(B),...Object.keys(F)])];
+  let nNew=0,nBoth=0,nDrop=0;
+  const rows=codes.map(c=>{
+    const b=B[c],f=F[c]; const name=(f&&f.name)||(b&&b.name)||""; const unlock=(f&&f.unlock_info)||(b&&b.unlock_info)||null;
+    let kind,br,fr,chg,ord;
+    if(f&&!b){kind="new";nNew++;ord=0;br="·";fr=f.rank;chg='<span class="b-new">🆕新增</span>';}
+    else if(b&&!f){kind="drop";nDrop++;ord=2;br=b.rank;fr="·";chg='<span class="b-drop">掉出</span>';}
+    else{kind="both";nBoth++;ord=1;br=b.rank;fr=f.rank;
+      const d=b.rank-f.rank; chg=d>0?`<span class="b-up">↑${d}</span>`:(d<0?`<span class="b-down">↓${-d}</span>`:'<span class="dim">=</span>');}
+    return {c,name,unlock,kind,br,fr,chg,ord,fkey:(f?f.rank:999)};
+  }).sort((a,b)=> a.ord-b.ord || a.fkey-b.fkey);
+  let h=`<div class="sum"><span class="chip c-new">🆕新增 ${nNew}</span><span class="chip c-both">共有 ${nBoth}</span><span class="chip c-drop">掉出 ${nDrop}</span></div>`;
+  h+='<table><thead><tr><th>变化</th><th>代码</th><th>简称</th><th>解禁/协转</th><th>基线排名</th><th>🧬fund排名</th></tr></thead><tbody>';
+  h+=rows.map(r=>`<tr class="${r.kind}"><td>${r.chg}</td><td class="scode">${r.c}</td><td class="sname">${r.name}</td><td>${formatUnlockInfo(r.unlock)}</td><td class="dim">${r.br}</td><td>${r.fr}</td></tr>`).join('');
+  h+='</tbody></table>';
+  return h;
+}
+function renderLatest(L, status, pending){
+  const topn=Math.max(5,Math.min(80,parseInt($("topn").value)||30));
+  if(!L || !L.fund_hits){ $("out").innerHTML='<div style="padding:8px">还没有对比结果。选 🧬批次 + 基线 + 模型, 点「🔬跑对比」。'+(pending?' (正在跑…)':'')+'</div>'; return; }
+  const bl=L.baseline_batch||"默认SOTA(原24因子)";
+  const warn=(L.as_of && L.base_as_of && L.as_of!==L.base_as_of)?` <span class="b-down">⚠️两侧日期不同(fund ${L.as_of} / 基线 ${L.base_as_of})</span>`:"";
+  const un=UNAME[L.universe]||L.universe||"沪深300";
+  let h=`<div class="st" style="margin-bottom:4px">🧬<b>${L.batch}</b> vs 基线<b>${bl}</b> · 模型 ${L.model} · <b style="color:#86efac">${un}</b> · as_of ${L.as_of||'?'}${warn} · 生成 ${L.generated_at||''}</div>`;
+  h+=diffTable(L.baseline_hits, L.fund_hits, topn);
+  h+='<div class="note">同模型同池, 仅因子集不同。<b>🆕新增</b>=挖到的基本面因子把这些票顶进Top'+topn+'(基线没选)→ 因子在起作用的直接证据; <b>掉出</b>=基线选了但fund因子认为不该买; <b>共有↑↓</b>=排名升降。新增越多说明🧬因子越"有主见"(也可能更投机, 结合<a href="/fund-mining">resid增量</a>看是否真alpha)。下方留痕可跨天对比稳定性。</div>';
+  $("out").innerHTML=h;
+}
+function renderHist(runs){
+  if(!runs || !runs.length){ $("hist").innerHTML='<div class="st">还没有留痕。每跑一次对比就记一行(最近60次)。</div>'; return; }
+  $("hist").innerHTML=runs.map(r=>`<div class="hrow" data-at="${r.generated_at}">
+    <b>${r.as_of||'?'}</b> · 🧬${r.batch} vs ${r.baseline_batch||'默认SOTA'} · ${r.model} · <span style="color:#86efac">${UNAME[r.universe]||r.universe||'沪深300'}</span> · fund ${r.n_fund}只/基线 ${r.n_base}只 <span class="dim">· ${r.generated_at||''} (点开)</span>
+    <div class="hdet st" style="display:none;margin-top:6px"></div></div>`).join('');
+  document.querySelectorAll('.hrow').forEach(el=>el.addEventListener('click', async ()=>{
+    const det=el.querySelector('.hdet');
+    if(det.style.display==='block'){ det.style.display='none'; return; }
+    det.style.display='block'; det.innerHTML='加载…';
+    try{ const d=await (await fetch('/api/fund_compare/detail?at='+encodeURIComponent(el.dataset.at))).json();
+      const topn=Math.max(5,Math.min(80,parseInt($("topn").value)||30));
+      det.innerHTML=diffTable(d.baseline_hits,d.fund_hits,topn);
+    }catch(e){ det.innerHTML='加载失败'; }
+  }));
+}
+function render(d){
+  const status=d.status||{}; const pending=d.pending||status.state==="running";
+  fillSel($("batch"), d.fund_batches||[], true);
+  fillSel($("baseline"), d.fund_batches||[], true);
+  $("run").disabled=pending || !(d.fund_batches||[]).length;
+  $("runall").disabled=pending || !(d.fund_batches||[]).length;
+  if(!(d.fund_batches||[]).length) $("batch").innerHTML='<option value="">(暂无🧬批次—先去挖矿)</option>';
+  $("live").innerHTML = pending ? ("⏳ "+(status.msg||"PC处理中…")) : (status.state==="error"?('<span style="color:#fca5a5">⚠️ '+(status.msg||"")+'</span>'):(status.msg||""));
+  if(pending && !POLL) POLL=setInterval(load,8000);
+  if(!pending && POLL){ clearInterval(POLL); POLL=null; }
+  LAST=d.latest||null;
+  renderLatest(LAST, status, pending);
+  renderHist(d.history||[]);
+}
+async function load(){
+  try{
+    const response=await fetch("/api/fund_compare");
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    render(await response.json());
+  }catch(e){
+    const message=`数据加载失败: ${e.message||"网络异常"}`;
+    $("live").textContent=message;
+    $("out").innerHTML=`<div class="card st" style="color:#fca5a5">${message} <button type="button" onclick="load()" title="重新加载">↻ 重试</button></div>`;
+    $("hist").innerHTML='<div class="st">暂时无法读取历史记录。</div>';
+    $("run").disabled=true; $("runall").disabled=true;
+  }
+}
+$("topn").addEventListener("change", ()=>{ if(LAST) renderLatest(LAST,{},false); });
+// 从挖矿页直达时带 ?univ=csiXXX 预选股票池
+(function(){ const u=new URLSearchParams(location.search).get("univ");
+  if(u && [...$("univ").options].some(o=>o.value===u)) $("univ").value=u; })();
+const UNAME={csi300:"沪深300",csi500:"中证500",csi1000:"中证1000"};
+async function trigger(model, confirmMsg){
+  const batch=$("batch").value;
+  if(!batch){ alert("请先选要对比的 🧬 基本面批次(没有就先去挖矿)"); return; }
+  const baseline=$("baseline").value, universe=$("univ").value;
+  if(!confirm(confirmMsg(batch,baseline,UNAME[universe]||universe))) return;
+  $("run").disabled=true; $("runall").disabled=true; $("live").textContent="提交中…";
+  try{ const j=await (await fetch("/api/fund_compare/run",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({batch,baseline,model,universe})})).json();
+    $("live").textContent=j.message||""; setTimeout(load,1500);
+  }catch(e){ $("live").textContent="失败: "+e.message; $("run").disabled=false; $("runall").disabled=false; }
+}
+$("run").addEventListener("click", ()=>trigger($("model").value,
+  (b,bl,un)=>`跑对比: 🧬${b} vs ${bl||'默认SOTA'} @${un}\n模型 ${$("model").value}, fund侧重训约几分~十几分, 需PC在跑。`));
+$("runall").addEventListener("click", ()=>trigger("all",
+  (b,bl,un)=>`一键全跑: 🧬${b} vs ${bl||'默认SOTA'} @${un}\n所有模型(lgb/xgb/catboost/ridge/lasso/ols)各跑一遍对比并留痕。\n含多模型重训, 约半~1小时, 需PC在跑。`));
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>行业基本面 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px;background:linear-gradient(90deg,#60a5fa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .sub{color:#94a3b8;line-height:1.7;font-size:13px;margin-bottom:12px;background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid #1e293b;padding:7px 10px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{color:#94a3b8;background:#0f172a;cursor:pointer;user-select:none;position:sticky;top:0}
+  th:hover{color:#e2e8f0}
+  tr.ind{cursor:pointer}tr.ind:hover td{background:#13203a}
+  .pos{color:#f87171}.neg{color:#34d399}
+  td.first::before{content:"▸ ";color:#64748b}
+  tr.open td.first::before{content:"▾ ";color:#94a3b8}
+  tr.detail td{background:#0b1220;padding:0}
+  .st{padding:8px 14px}.st table{width:auto;font-size:12px}.st th,.st td{border-bottom:1px solid #1e293b;padding:3px 12px}
+  .bar{margin:0 0 10px}.bar button{font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div class="hd">🏭 行业基本面排序</div>
+    <div class="bar"><button id="rfbtn" onclick="doRefresh('industry')">🔄 刷新数据</button> <span id="rfst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span></div>
+    <div class="sub" id="sub">加载中…</div>
+    <div id="tbl"></div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script>
+let DATA=[], sortKey='spread', sortDesc=true;
+const COLS=[
+  ['industry','行业',false],['n','成分数',true],['dt_yoy','扣非增速%',true],['or_yoy','营收增速%',true],
+  ['spread','利润弹性',true],['pct_dt_gt_or','利润跑赢营收%',true],['pct_dt_pos','扣非转正占比%',true]
+];
+function num(v){return v==null?'-':v;}
+function cls(v){return v==null?'':(v>=0?'pos':'neg');}
+function render(){
+  DATA.sort((a,b)=>{const x=a[sortKey],y=b[sortKey]; if(x==null)return 1; if(y==null)return -1; return sortDesc?(y-x):(x-y);});
+  let h='<table><thead><tr>'+COLS.map(c=>`<th onclick="setSort('${c[0]}')">${c[1]}${sortKey===c[0]?(sortDesc?' ▼':' ▲'):''}</th>`).join('')+'</tr></thead><tbody>';
+  DATA.forEach((r,i)=>{
+    h+=`<tr class="ind" data-i="${i}"><td class="first">${r.industry}</td><td>${r.n}</td>`+
+       `<td class="${cls(r.dt_yoy)}">${num(r.dt_yoy)}</td><td class="${cls(r.or_yoy)}">${num(r.or_yoy)}</td>`+
+       `<td class="${cls(r.spread)}"><b>${num(r.spread)}</b></td><td>${num(r.pct_dt_gt_or)}</td><td>${num(r.pct_dt_pos)}</td></tr>`;
+  });
+  h+='</tbody></table>';
+  document.getElementById('tbl').innerHTML=h;
+}
+function setSort(k){ if(sortKey===k)sortDesc=!sortDesc; else {sortKey=k;sortDesc=true;} render(); }
+document.addEventListener('click',e=>{
+  const tr=e.target.closest('tr.ind'); if(!tr)return;
+  const nx=tr.nextElementSibling;
+  if(nx&&nx.classList.contains('detail')){nx.remove();tr.classList.remove('open');return;}
+  tr.classList.add('open');
+  const r=DATA[+tr.getAttribute('data-i')], ts=r.top_stocks||[];
+  const det=document.createElement('tr');det.className='detail';
+  let s='<div class="st"><b style="color:#94a3b8;font-size:12px">行业内扣非增速最高(选股参考):</b><table><thead><tr><th>代码</th><th>名称</th><th>扣非增速%</th><th>营收增速%</th></tr></thead><tbody>'+
+    ts.map(x=>`<tr><td>${x.code}</td><td>${x.name}</td><td class="${cls(x.dt_yoy)}">${num(x.dt_yoy)}</td><td class="${cls(x.or_yoy)}">${num(x.or_yoy)}</td></tr>`).join('')+'</tbody></table></div>';
+  det.innerHTML=`<td colspan="${COLS.length}">${s}</td>`;
+  tr.parentNode.insertBefore(det,tr.nextSibling);
+});
+fetch('/api/industry').then(r=>r.json()).then(d=>{
+  DATA=d.rows||[];
+  document.getElementById('sub').innerHTML=`报告期 <b>${d.period||'-'}</b> · ${d.n_industries||0}个行业(成分≥${d.min_members||5}) · 更新 ${d.updated||'-'}。`+
+    `<b>利润弹性=扣非净利增速−营收增速</b>(>0=降本增效/经营杠杆/毛利改善, 通常更优); 聚合用中位数抗异常。点表头排序、点行看行业龙头。仅基本面参考, 须结合估值/股价位置。`;
+  if(!DATA.length){document.getElementById('tbl').innerHTML='<div class="sub">'+(d.message||'暂无数据')+'</div>';return;}
+  render();
+}).catch(e=>{document.getElementById('tbl').innerHTML='加载失败: '+e;});
+</script>
+</body>
+</html>

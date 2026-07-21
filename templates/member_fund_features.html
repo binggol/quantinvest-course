@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>基本面字段 · QuantInvest</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}">
+</head>
+<body class="member-shell">
+  <header class="member-head"><div class="brand-row"><h1>QuantInvest 数据服务</h1></div>{% include "_nav.html" %}</header>
+  <main class="member-main">
+    <div class="page-title"><h2>基本面字段</h2><div id="feature-summary" class="muted">正在加载</div></div>
+    <section class="member-table-wrap" aria-label="基本面字段覆盖情况">
+      <table class="member-data-table">
+        <thead><tr><th>字段</th><th>含义</th><th class="number">覆盖率</th><th class="number">最小值</th><th class="number">中位数</th><th class="number">最大值</th></tr></thead>
+        <tbody id="feature-rows"></tbody>
+      </table>
+      <div id="feature-empty" class="table-empty" hidden>暂无字段元数据</div>
+    </section>
+  </main>
+<script>
+(() => {
+  "use strict";
+  const labels = {
+    gm: "销售毛利率", dedt_yoy: "扣非净利润同比增速", roe: "净资产收益率",
+    debt: "资产负债率", val_pe_inv: "市盈率倒数", val_pb_inv: "市净率倒数",
+    val_ps_inv: "市销率倒数", ocf: "经营现金流与营收比", or_yoy: "营业收入同比增速",
+    netprofit_yoy: "净利润同比增速", netprofit_margin: "销售净利率",
+    assets_turn: "总资产周转率", roe_dt: "扣非净资产收益率",
+    ocf_np: "经营现金流与扣非净利润比", dv_ttm: "滚动股息率"
+  };
+  const rows = document.getElementById("feature-rows");
+  const empty = document.getElementById("feature-empty");
+  const summary = document.getElementById("feature-summary");
+  const value = input => input === null || input === undefined || input === "" ? "-" : String(input);
+  const coverage = input => {
+    const number = Number(input);
+    return input === null || input === undefined || input === "" || !Number.isFinite(number) ? "-" : `${(number * 100).toFixed(1)}%`;
+  };
+
+  fetch("/api/fund_features").then(async response => {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+    const features = Array.isArray(data.features) ? data.features.filter(feature => feature && typeof feature === "object") : [];
+    const fragment = document.createDocumentFragment();
+    features.forEach(feature => {
+      const tr = document.createElement("tr");
+      const cells = [
+        feature.name,
+        labels[feature.name] || feature.name,
+        coverage(feature.coverage),
+        value(feature.min), value(feature.median), value(feature.max)
+      ];
+      cells.forEach((cell, index) => { const td = document.createElement("td"); td.textContent = cell; if (index > 1) td.className = "number"; tr.appendChild(td); });
+      fragment.appendChild(tr);
+    });
+    rows.replaceChildren(fragment);
+    empty.hidden = features.length > 0;
+    summary.textContent = features.length
+      ? `${features.length} 个字段 · 覆盖 ${data.n_codes || 0} 只股票 · 更新 ${data.updated || "-"}`
+      : (data.message || "暂无字段元数据");
+  }).catch(error => {
+    rows.replaceChildren();
+    empty.hidden = false;
+    empty.textContent = "基本面字段加载失败，请稍后重试";
+    summary.textContent = `加载失败：${error.message}`;
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+﻿<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>新事件腿 · quantinvest</title><link rel="stylesheet" href="/static/style.css"/>
+<style>.wrap{max-width:920px;margin:0 auto;padding:14px}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:13px 16px;margin-bottom:14px}
+.hd{font-size:16px;font-weight:700;margin-bottom:4px}table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid #1e293b;padding:6px 9px;text-align:left}th{color:#94a3b8}.green{color:#86efac}
+.meta{color:#64748b;font-size:12px;line-height:1.6;margin-top:6px}.win{font-size:11px;padding:1px 6px;border-radius:6px;background:#14532d;color:#86efac}</style></head><body>
+{% include "_nav.html" %}
+<div class="wrap">
+<div class="card" style="background:#13203a;border-color:#2a4a6a"><div class="hd" style="color:#7dd3fc">🆕 新事件腿(2026-06验证落地)</div>
+<div class="meta">这一轮逐个攻定增/事件全谱系新捞的金子。都是<b>信息优势(内部人信号/财务周期),符合"能赚=信息优势"铁律</b>。</div></div>
+<div class="card"><div class="hd" style="color:#86efac">🤝 承诺不减持(大股东主动)</div>
+<div class="meta">验证: 公告后<b class="green">60日+3.25%/胜52%</b>(20日+1.37%, 120日衰减)。大股东/实控人主动承诺不减持=低估信号。持有~60交易日。</div>
+<div id="commit">加载中…</div></div>
+<div class="card"><div class="hd" style="color:#fbbf24">🛁 商誉洗大澡(先抑后扬)</div>
+<div class="meta">验证: 预告披露后<b>先抑(60日-1.43%)后扬(<span class="green">120日+6.15%</span>/250日+3.91%)</b>。减值非现金, 次年低基数暴增→机构追捧反弹。<b>⚠️需忍前60天下跌(接飞刀)</b>; 反弹窗=披露后约50-250日; 仅现金流正的才是真洗澡。季节性(年报预告季1-4月)。</div>
+<div id="bath">加载中…</div></div>
+</div>
+<script>
+function tbl(its,cols){if(!its||!its.length)return '<div class="meta">当前窗口内无标的(可能空窗/季节性)</div>';
+let h='<table><thead><tr>'+cols.map(c=>'<th>'+c[0]+'</th>').join('')+'</tr></thead><tbody>';
+h+=its.map(x=>'<tr>'+cols.map(c=>'<td>'+c[1](x)+'</td>').join('')+'</tr>').join('');return h+'</tbody></table>';}
+fetch("/api/commit_nosell").then(r=>r.json()).then(d=>{
+document.getElementById("commit").innerHTML='<div class="meta">'+(d.n||0)+'只·窗口内'+(d.n_window||0)+' · 更新'+(d.updated||'-')+'</div>'+
+tbl((d.items||[]).filter(x=>x.in_window).slice(0,30),[['代码',x=>x.ts_code],['名称',x=>x.name],['承诺日',x=>x.ann_date],['距今',x=>x.days_since+'天'+(x.in_window?' <span class="win">窗口内</span>':'')]]);});
+fetch("/api/bigbath").then(r=>r.json()).then(d=>{
+document.getElementById("bath").innerHTML='<div class="meta">'+(d.n||0)+'只·反弹窗'+(d.n_rebound||0)+' · 更新'+(d.updated||'-')+'</div>'+
+tbl((d.items||[]).filter(x=>x.in_rebound_window).slice(0,30),[['代码',x=>x.ts_code],['名称',x=>x.name||'-'],['预告日',x=>x.ann_date],['类型',x=>x.type],['净利变动',x=>(x.p_change_min!=null?x.p_change_min.toFixed(0)+'%':'-')],['距今',x=>x.days_since+'天'+(x.in_rebound_window?' <span class="win">反弹窗</span>':'')]]);});
+</script></body></html>

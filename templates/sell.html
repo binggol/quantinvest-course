@@ -1,0 +1,185 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>卖出提醒 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1050px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px;background:linear-gradient(90deg,#f87171,#fbbf24);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .bar{margin:0 0 10px}.bar button{font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer}
+  .sub{color:#94a3b8;line-height:1.7;font-size:13px;margin-bottom:12px;background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid #1e293b;padding:7px 10px;text-align:right}
+  th:nth-child(-n+2),td:nth-child(-n+2),th:last-child,td:last-child{text-align:left}
+  th{color:#94a3b8;background:#0f172a}
+  .L3{background:rgba(248,113,113,0.18)}.L2{background:rgba(251,146,60,0.13)}.L1{background:rgba(250,204,21,0.07)}
+  .badge{font-size:11px;padding:1px 7px;border-radius:6px;margin-right:4px}
+  .b3{background:#7f1d1d;color:#fecaca}.b2{background:#7c2d12;color:#fed7aa}.b1{background:#713f12;color:#fde68a}
+  .empty{color:#64748b;padding:20px;text-align:center}
+  .rules{font-size:12.5px;line-height:1.9;color:#cbd5e1}
+  .rules b{color:#fbbf24}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div id="cross-market-alert" style="display:none;background:#2b1111;border:1px solid #7f1d1d;border-radius:8px;padding:10px 12px;margin-bottom:10px"></div>
+    <div class="hd">🔔 卖出提醒</div>
+    <div class="bar"><button id="rfbtn" onclick="doRefresh('sell')">🔄 刷新信号</button> <span id="rfst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span></div>
+    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+      <b style="font-size:13px">📥 我的持仓</b> <span style="color:#64748b;font-size:12px">每次买入都单独追加批次。做T盈亏按LIFO优先匹配最新批次（可匹配今日买入），但卖单总量仍不能超过昨日持仓可卖额度。</span>
+      <div style="margin:8px 0">
+        <input id="pcode" placeholder="代码/首字母/名称 如gzmt" autocomplete="off" style="background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:5px 8px;font-size:13px;width:140px"/>
+        <input id="pcost" type="number" step="0.01" placeholder="本次买入价" style="background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:5px 8px;font-size:13px;width:100px"/>
+        <input id="pqty" type="number" step="100" min="1" placeholder="本次数量" title="本次买入数量" style="background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:5px 8px;font-size:13px;width:90px"/>
+        <input id="pdate" type="date" title="本次买入日；留空默认今天" style="background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:5px 8px;font-size:13px"/>
+        <select id="psleeve" title="来源腿: 用于实盘业绩按腿归因(实盘vs回测)" style="background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:5px 8px;font-size:13px">
+          <option value="">来源腿(可选)</option>
+          <option value="pro">顾问Pro(底仓)</option>
+          <option value="runup">业绩抢跑</option>
+          <option value="repo">回购腿</option>
+          <option value="chipmap">海力士映射</option>
+          <option value="inclusion">纳入研究</option>
+          <option value="manual">手动/其他</option>
+        </select>
+        <button onclick="addPos()" style="font-size:13px;padding:5px 12px;background:#166534;color:#fff;border:none;border-radius:5px;cursor:pointer">+ 追加买入批次</button>
+        <span id="pmsg" style="color:#94a3b8;font-size:12px;margin-left:6px"></span>
+      </div>
+      <div id="pac" style="max-width:320px;margin:-4px 0 6px"></div>
+      <div id="poslist" style="font-size:12px;color:#cbd5e1"></div>
+      <div id="sells" style="margin-top:16px;padding-top:12px;border-top:1px solid #1e293b"></div>
+    </div>
+    <div class="sub" id="sub">加载中…</div>
+    <div id="tbl"></div>
+    <div class="sub rules" style="margin-top:14px">
+      <b>📕 经典卖出纪律(治"处置效应": 赢家别卖太早、输家别拿太久)</b><br>
+      ① <b>硬止损</b>(欧奈尔): 跌破买入价 −7~8% 无条件卖(亏50%要涨100%才回本)。<br>
+      ② <b>趋势破坏</b>: 跌破 20/60日线、走出更低的高点 → 趋势转弱就走(利弗莫尔: 反向突破才确认反转)。<br>
+      ③ <b>移动止损</b>: 从近期高点回撤超阈值(如10/15%)→ 锁利, 同时让没破位的利润奔跑。<br>
+      ④ <b>分批止盈</b>: +20~25% 且滞涨/放量见顶 → 减部分。<br>
+      ⑤ <b>逻辑破坏</b>: 当初买入的理由(业绩/事件/景气)不在了 → 卖, 与浮盈浮亏无关。<br>
+      <span style="color:#64748b">在「自选股」加入你持有的票即可监控; 想要 −8%硬止损/止盈, 在 data/positions.json 填成本。</span>
+    </div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script>
+fetch("/api/cross_market?sector=storage").then(r=>r.json()).then(d=>{
+  const held=d.holdings||[];if(!held.length)return;
+  const e=document.getElementById("cross-market-alert");e.style.display="block";
+  e.innerHTML=`<b style="color:#fca5a5">⚠ 跨市场持仓预警</b>　${held.map(x=>`${x.name||x.code}(${x.score||"—"})`).join("、")}　<a href="/cross-market" style="color:#60a5fa">详情→</a>${d.mode!=="live"?' <span style="color:#fbbf24">研究观察，不执行</span>':""}`;
+}).catch(()=>{});
+function loadPos(){
+  fetch('/api/positions').then(r=>r.json()).then(d=>{
+    const ps=d.positions||[];
+    document.getElementById('poslist').innerHTML = ps.length
+      ? '<table style="border-collapse:collapse;font-size:12px;width:auto"><thead><tr style="color:#64748b;text-align:left">'+
+          '<th style="padding:3px 14px 3px 8px;font-weight:400">代码</th><th style="padding:3px 14px;font-weight:400">简称</th>'+
+          '<th style="padding:3px 14px;font-weight:400;text-align:right">加权成本</th><th style="padding:3px 14px;font-weight:400;text-align:right">现价</th><th style="padding:3px 14px;font-weight:400;text-align:right">总数/可卖/锁定</th>'+
+          '<th style="padding:3px 14px;font-weight:400;text-align:right">买入成本</th><th style="padding:3px 14px;font-weight:400;text-align:right">当前市值</th><th style="padding:3px 14px;font-weight:400;text-align:right">盈亏</th><th style="padding:3px 14px;font-weight:400">买入日</th><th></th></tr></thead><tbody>'+
+        ps.map(p=>{
+          const mv=(p.mktval!=null)?'¥'+p.mktval.toLocaleString():'';
+          const buyval=(p.cost&&p.qty)?'¥'+(p.cost*p.qty).toLocaleString():'';
+          const up=(p.pnl||0)>=0, pcol=up?'#ef4444':'#22c55e';
+          const pnlc=(p.pnl!=null)?`<span style="color:${pcol}">${p.pnl>0?'+':''}¥${p.pnl.toLocaleString()}${p.ret_pct!=null?` <span style="font-size:11px">(${p.ret_pct>0?'+':''}${p.ret_pct}%)</span>`:''}</span>`:'<span style="color:#64748b">—</span>';
+          const lots=(p.lots||[]).map(l=>`<span style="display:inline-block;margin:2px 8px 2px 0;padding:2px 7px;background:#111827;border-radius:5px">${l.buy_date||'日期未填'} · ${l.remaining_qty}股 @ ${l.cost} ${l.remaining_qty<l.qty?`<span style="color:#fbbf24">(原${l.qty})</span>`:''} <a href="#" onclick="delLot('${p.code}','${l.lot_id}');return false" style="color:#64748b;margin-left:5px" title="删除误录批次">✕</a></span>`).join('');
+          return `<tr style="border-top:1px solid #1e293b">`+
+            `<td style="padding:4px 14px 4px 8px"><span style="color:#7dd3fc;font-family:monospace">${p.code}</span></td>`+
+            `<td style="padding:4px 14px;color:#cbd5e1">${p.name||'<span style="color:#64748b">—</span>'}</td>`+
+            `<td style="padding:4px 14px;text-align:right">${p.cost?('<b>'+p.cost+'</b>'):'<span style="color:#64748b">仅监控</span>'}</td>`+
+            `<td style="padding:4px 14px;text-align:right;color:#cbd5e1">${p.last!=null?p.last:'<span style="color:#64748b">—</span>'}</td>`+
+            `<td style="padding:4px 14px;text-align:right;color:#94a3b8">${p.qty?`${p.qty} / <span style="color:#86efac">${p.available_qty||0}</span> / <span style="color:#fbbf24">${p.locked_qty||0}</span>`:'—'}</td>`+
+            `<td style="padding:4px 14px;text-align:right;color:#94a3b8">${buyval||'<span style="color:#64748b">—</span>'}</td>`+
+            `<td style="padding:4px 14px;text-align:right;color:#cbd5e1">${mv||'<span style="color:#64748b">—</span>'}</td>`+
+            `<td style="padding:4px 14px;text-align:right">${pnlc}</td>`+
+            `<td style="padding:4px 14px;color:#64748b">${p.date||'<span style="color:#475569">未填</span>'}</td>`+
+            `<td style="padding:4px 8px;white-space:nowrap"><a href="#" onclick="sellPos('${p.code}','${(p.name||'').replace(/'/g,'')}',${p.available_qty||0});return false" style="color:#34d399;margin-right:12px;font-weight:600">💰部分卖出</a><a href="#" onclick="delPos('${p.code}');return false" style="color:#64748b" title="删除全部批次(不记盈亏)">✕</a></td></tr>`+
+            `<tr><td colspan="10" style="padding:3px 12px 7px 32px;color:#94a3b8;background:#0b1220"><b>买入批次：</b>${lots||'—'} <span style="margin-left:8px;color:#64748b">数量格式：总数 / 可卖 / 今日锁定</span></td></tr>`;
+        }).join('')+'</tbody></table>'
+      : '<span style="color:#64748b">暂无持仓; 加入后点🔄刷新信号即可按成本止损/止盈</span>';
+  });
+}
+function addPos(){
+  const code=document.getElementById('pcode').value.trim(), cost=document.getElementById('pcost').value.trim(), date=document.getElementById('pdate').value.trim(), qty=document.getElementById('pqty').value.trim(), sleeve=document.getElementById('psleeve').value;
+  const msg=document.getElementById('pmsg');
+  if(!code){msg.textContent='填代码(或拼音首字母)';return;}
+  fetch('/api/positions/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,cost,date,qty,sleeve})}).then(r=>r.json()).then(r=>{
+    msg.textContent=r.ok?'已追加买入批次，旧持仓已保留':(r.message||'失败');
+    if(r.ok){document.getElementById('pcode').value='';document.getElementById('pcost').value='';document.getElementById('pdate').value='';document.getElementById('pqty').value='';loadPos();}
+  });
+}
+function delPos(code){ if(!confirm('误录删除(不记盈亏)?')) return; fetch('/api/positions/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(()=>loadPos()); }
+function delLot(code,lotId){if(!confirm('只删除这个误录批次？不会记录盈亏。'))return;fetch('/api/positions/lot/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,lot_id:lotId})}).then(r=>r.json()).then(r=>{if(!r.ok)alert(r.message||'失败');loadPos()})}
+function sellPos(code,name,available){
+  if(!available){alert('当前没有可卖数量；今天买入的批次要到下一交易日才能卖。');return;}
+  const q=prompt(`卖出 ${name||code}\n券商口径当前最多可卖 ${available} 股\n① 输入卖出数量（做T盈亏按LIFO匹配最新批次，可匹配今日买入）:`,available);
+  if(q===null)return;
+  const qty=parseInt(q,10);if(!qty||qty<=0||qty>available){alert(`数量必须在 1–${available} 之间`);return;}
+  const sp=prompt(`② 卖出价(留空=取实时价):`,'');
+  if(sp===null) return;
+  const today=new Date().toLocaleDateString('sv').slice(0,10);
+  const sd=prompt(`③ 卖出日期 YYYY-MM-DD:`, today);
+  if(sd===null) return;
+  fetch('/api/positions/sell',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name,qty,sell_price:sp,sell_date:sd})}).then(r=>r.json()).then(r=>{
+    if(r.ok){ const x=r.record; alert(`已卖出 ${x.qty} 股 ${x.name}\nLIFO批次成本 ${x.cost??'?'} · 卖价 ${x.sell_price??'?'}\n收益 ${x.ret_pct!=null?(x.ret_pct>0?'+':'')+x.ret_pct+'%':'?'} · 盈亏 ${x.pnl!=null?(x.pnl>0?'+':'')+'¥'+x.pnl.toLocaleString():'?'}\n剩余 ${r.remaining_qty} 股`); loadPos(); loadSells(); }
+    else alert(r.message||'失败');
+  });
+}
+function loadSells(){
+  fetch('/api/sells/history').then(r=>r.json()).then(d=>{
+    const box=document.getElementById('sells'); if(!box) return;
+    const h=d.history||[];
+    let s=`<div style="font-weight:700;margin:4px 0 6px">📒 卖出历史 <span style="font-size:12px;font-weight:400;color:#94a3b8">${d.n||0}笔`;
+    if(d.n){ s+=` · 胜率 ${d.win_rate}% · 平均 ${d.avg_ret>0?'+':''}${d.avg_ret}% · 累计盈亏 <b style="color:${d.total_pnl>=0?'#ef4444':'#22c55e'}">${d.total_pnl>0?'+':''}¥${(d.total_pnl||0).toLocaleString()}</b>`; }
+    s+=`</span></div>`;
+    if(!h.length){ box.innerHTML=s+'<span style="color:#64748b;font-size:12px">还没有卖出记录。卖出时点持仓行的「💰卖出」即记录。</span>'; return; }
+    s+='<table style="border-collapse:collapse;font-size:12px;width:auto"><thead><tr style="color:#64748b;text-align:right">'+
+       '<th style="padding:3px 12px 3px 8px;text-align:left">代码/名称</th><th style="padding:3px 12px">买入日</th><th style="padding:3px 12px">成本</th><th style="padding:3px 12px">卖出日</th><th style="padding:3px 12px">卖价</th><th style="padding:3px 12px">数量</th><th style="padding:3px 12px">收益%</th><th style="padding:3px 12px">盈亏¥</th><th style="padding:3px 12px">持有天</th><th></th></tr></thead><tbody>';
+    s+=h.map(r=>{
+      const up=(r.ret_pct||0)>=0;
+      return `<tr style="border-top:1px solid #1e293b">`+
+        `<td style="padding:4px 12px 4px 8px;text-align:left"><span style="color:#cbd5e1">${r.name||''}</span> <span style="color:#64748b;font-family:monospace">${r.code}</span></td>`+
+        `<td style="padding:4px 12px;text-align:right;color:#64748b">${r.buy_date||'-'}</td>`+
+        `<td style="padding:4px 12px;text-align:right">${r.cost??'-'}</td>`+
+        `<td style="padding:4px 12px;text-align:right"><a href="#" onclick="editSellDate('${r.recorded_at}','${r.sell_date||''}');return false" style="color:#94a3b8;text-decoration:underline dotted" title="点击改日期">${r.sell_date||'-'}</a></td>`+
+        `<td style="padding:4px 12px;text-align:right">${r.sell_price??'-'}</td>`+
+        `<td style="padding:4px 12px;text-align:right;color:#94a3b8">${r.qty?r.qty+'股':'-'}</td>`+
+        `<td style="padding:4px 12px;text-align:right;color:${up?'#ef4444':'#22c55e'};font-weight:600">${r.ret_pct!=null?(up?'+':'')+r.ret_pct+'%':'-'}</td>`+
+        `<td style="padding:4px 12px;text-align:right;color:${up?'#ef4444':'#22c55e'}">${r.pnl!=null?(r.pnl>0?'+':'')+r.pnl.toLocaleString():'-'}</td>`+
+        `<td style="padding:4px 12px;text-align:right;color:#64748b">${r.held_days!=null?r.held_days:'-'}</td>`+
+        `<td style="padding:4px 8px"><a href="#" onclick="delSell('${r.recorded_at}');return false" style="color:#475569" title="删此记录">✕</a></td></tr>`;
+    }).join('')+'</tbody></table>';
+    box.innerHTML=s;
+  });
+}
+function delSell(ra){ if(!confirm('删除这条卖出记录?')) return; fetch('/api/sells/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recorded_at:ra})}).then(()=>loadSells()); }
+function editSellDate(ra,cur){
+  const sd=prompt('改卖出日期 YYYY-MM-DD:', cur||'');
+  if(sd===null||!sd.trim()) return;
+  fetch('/api/sells/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recorded_at:ra,sell_date:sd.trim()})}).then(r=>r.json()).then(r=>{ if(r.ok) loadSells(); else alert(r.message||'失败'); });
+}
+let _acT;
+document.getElementById('pcode').addEventListener('input',()=>{clearTimeout(_acT);_acT=setTimeout(acSearch,150);});
+function acSearch(){
+  const q=document.getElementById('pcode').value.trim(), ac=document.getElementById('pac');
+  if(!q){ac.innerHTML='';return;}
+  fetch('/api/search?q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{
+    ac.innerHTML=(d.hits||[]).slice(0,8).map(h=>`<div onclick="pickStock('${h.ts_code}','${(h.name||'').replace(/'/g,'')}')" style="padding:4px 9px;cursor:pointer;border:1px solid #1e293b;border-top:none;background:#0b1220;font-size:13px">${h.name} <span style="color:#64748b">${h.ts_code} ${h.industry||''}</span></div>`).join('');
+  }).catch(()=>{});
+}
+function pickStock(ts,name){document.getElementById('pcode').value=ts;document.getElementById('pac').innerHTML='';document.getElementById('pmsg').textContent=name;document.getElementById('pcost').focus();}
+loadPos(); loadSells();
+fetch('/api/sell').then(r=>r.json()).then(d=>{
+  const a=d.alerts||[];
+  document.getElementById('sub').innerHTML=`更新 ${d.updated||'-'} · 监控 ${d.n_watch||0} 只 · 触发 <b style="color:#f87171">${d.n_alert||0}</b> 只。${d.rules||''}`;
+  if(!a.length){document.getElementById('tbl').innerHTML=`<div class="empty">${d.n_watch?'当前无卖出信号 ✅ 持有的票都还在趋势里。':(d.message||'自选股为空, 先加入你持有的票。')}</div>`;return;}
+  const lv={3:['b3','重·止损'],2:['b2','偏重'],1:['b1','观察']};
+  let h='<table><thead><tr><th>代码</th><th>名称</th><th>来源</th><th>现价</th><th>MA20</th><th>MA60</th><th>距20日高</th><th>浮盈</th><th>卖出信号</th></tr></thead><tbody>';
+  h+=a.map(r=>`<tr class="L${r.level}"><td>${r.code}</td><td>${r.name}</td><td style="font-size:11px;color:#94a3b8">${r.src||''}</td><td>${r.cur}</td><td>${r.ma20}</td><td>${r.ma60??'-'}</td><td style="color:${r.dd20<=-10?'#f87171':'#94a3b8'}">${r.dd20}%</td><td style="color:${r.pnl==null?'#64748b':(r.pnl>=0?'#f87171':'#34d399')}">${r.pnl==null?'-':r.pnl+'%'}</td><td><span class="badge ${lv[r.level][0]}">${lv[r.level][1]}</span>${r.signals.join('; ')}</td></tr>`).join('');
+  h+='</tbody></table>';
+  document.getElementById('tbl').innerHTML=h;
+}).catch(e=>{document.getElementById('tbl').innerHTML='加载失败: '+e;});
+</script>
+</body>
+</html>

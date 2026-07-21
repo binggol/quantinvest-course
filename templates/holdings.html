@@ -1,0 +1,278 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>持仓收益 vs 基准 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline_contract.js"></script>
+<style>
+  .wrap{max-width:1040px;margin:0 auto;padding:14px}
+  .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+  select{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:5px 9px;font-size:13px}
+  .sum{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
+  .kpi{background:#0f172a;border:1px solid #1e293b;border-radius:9px;padding:8px 14px;min-width:120px}
+  .kpi .v{font-size:18px;font-weight:700}.kpi .l{font-size:11px;color:#94a3b8}
+  .pos{color:#34d399}.neg{color:#f87171}.dim{color:#64748b}
+  #chart{width:100%;height:380px;background:#0b1220;border:1px solid #1e293b;border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:12px;margin-top:6px}
+  th,td{border:1px solid #1e293b;padding:4px 8px;text-align:right}
+  th:nth-child(1),td:nth-child(1),th:nth-child(2),td:nth-child(2){text-align:left}
+  th{background:#111827;color:#94a3b8;cursor:pointer;user-select:none}
+  .scode{color:#7dd3fc;font-family:monospace}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .hd{font-size:14px;color:#86efac;margin:16px 0 6px;font-weight:600}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>把你在 <a href="/sell">卖出提醒</a>页录入的<b>持仓(代码 + 成本价 + 买入日)</b>拿来,算每日<b>持仓平均收益率</b>,和<b>"同样的票、同样的买入日、但买进基准指数"</b>的收益做折线对比——直接看你的<b>选股+择时跑没跑赢基准</b>。绿线在红线上方=跑赢。<b>口径: 等权、单票收益=现价/成本−1、停牌日取最近收盘; 没填成本/买入日的持仓不计入。仅研究。</b></div></details>
+  <div class="wrap">
+    <div class="bar">
+      基准 <select id="bench"><option value="sh000300">沪深300</option><option value="sh000905">中证500</option><option value="sh000852">中证1000</option></select>
+      <span id="asof" class="dim"></span>
+    </div>
+    <div class="bar" style="margin-top:4px">
+      <span id="cov" class="dim" style="font-size:12px"></span>
+      <button id="rfbtn" onclick="doRefresh('backfill')" title="检测各股行情数据是否滞后, 滞后则自动重建补全(可能十几分钟)" style="font-size:12px;padding:4px 10px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">🔄 补全行情数据</button>
+      <span id="rfst" style="color:#94a3b8;font-size:12px;margin-left:6px"></span>
+    </div>
+    <div class="sum" id="sum"></div>
+    <div id="chart"></div>
+    <div id="metrics"></div>
+    <div class="note" id="emptynote" style="display:none"></div>
+
+    <div class="hd">📈 持仓当日分时 · 做T(各股+基准, 距昨收%叠加) <span id="its" class="dim" style="font-size:11px;font-weight:400"></span></div>
+    <div id="ichart" style="width:100%;height:340px;background:#0b1220;border:1px solid #1e293b;border-radius:10px"></div>
+    <div class="dim" style="font-size:11.5px;margin:4px 0">每条线=一只持仓当日相对昨收的涨跌%(基准虚线)。线在上=今日强、可考虑高抛;线探底回升=低吸点。盘中每30秒刷新。<b>仅辅助, 自行判断停牌/涨跌停。</b></div>
+
+    <div class="hd">📋 逐票明细 (点表头排序)</div>
+    <div id="tbl" class="dim">加载中…</div>
+  </div>
+  <div id="stopModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99" onclick="if(event.target===this)this.style.display='none'">
+    <div style="max-width:880px;margin:4vh auto;background:#0f172a;border:1px solid #2a4a6a;border-radius:12px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><div id="stopTitle" style="font-size:16px;font-weight:700"></div><span style="cursor:pointer;color:#94a3b8;font-size:20px" onclick="document.getElementById('stopModal').style.display='none'">✕</span></div>
+      <div id="stopKpi" style="display:flex;gap:18px;flex-wrap:wrap;margin:8px 0"></div>
+      <div id="stopStatus" style="font-size:13px;margin-bottom:6px"></div>
+      <div id="stopChart" style="width:100%;height:360px"></div>
+      <div style="font-size:11.5px;color:#94a3b8;margin-top:6px">🔴主止损−10%(A股实测最优) / 🟡买入日最低 / 2-ATR参考。<b style="color:#fca5a5">收盘跌破=止损纪律(欧奈尔−7~8%同理),3日内强平、绝不摊平。</b></div>
+    </div>
+  </div>
+<script>
+let STOPCHART=null, STOP_REQUEST_NO=0;
+async function showStop(code,name,buy,cost){
+  const ownRequest=++STOP_REQUEST_NO;
+  document.getElementById('stopModal').style.display='block';
+  document.getElementById('stopTitle').textContent=`🛡️ ${name} ${code} 止损线 (锚=买入日${buy||'?'})`;
+  if(!window.echarts){document.getElementById('stopStatus').textContent='图表组件加载失败，请刷新页面后重试';return;}
+  if(!STOPCHART) STOPCHART=echarts.init(document.getElementById('stopChart'));
+  setTimeout(()=>STOPCHART.resize(),50);
+  document.getElementById('stopStatus').textContent='K线加载中…';
+  try{
+  const response=await fetch(`/api/eventstop?code=${encodeURIComponent(code)}&event_date=${encodeURIComponent(buy||'')}&buy_price=${encodeURIComponent(cost||'')}`);
+  const d=await response.json().catch(()=>({}));
+  if(ownRequest!==STOP_REQUEST_NO)return;
+  if(!response.ok)throw new Error(d.message||d.error||`HTTP ${response.status}`);
+  if(!d.ok){ document.getElementById('stopStatus').textContent=d.message||'无数据'; STOPCHART.clear(); return; }
+  const contract=QIKline.assertCompactPayload(d.k,'qfq');
+  document.getElementById('stopTitle').textContent=`🛡️ ${name} ${code} 止损线 · ${contract.adjustLabel} (锚=买入日${buy||'?'})`;
+  const broke=d.broke_pct; const warn=!d.broke_pct&&d.broke_evlow;
+  document.getElementById('stopKpi').innerHTML=[["买入价",d.buy],["🔴主止损-10%",d.pct_stop],["买入日最低",d.ev_low],["2-ATR参考",d.atr_stop],["现价",d.last]]
+    .map(([l,v])=>`<div style="text-align:center"><div style="font-size:16px;font-weight:700">${v}</div><div style="font-size:11px;color:#94a3b8">${l}</div></div>`).join('');
+  document.getElementById('stopStatus').innerHTML = (broke?`<span style="color:#f87171;font-weight:700">${d.status}</span>`:(warn?`<span style="color:#fbbf24">${d.status}</span>`:`<span style="color:#34d399">✅ ${d.status} · 现价${d.last}在-10%硬止损上方</span>`))+(contract.qualityNotice?` · ${contract.qualityNotice}`:'');
+  const k=d.k, evIdx=k.dates.indexOf(d.ev_date);
+  STOPCHART.setOption({animation:false,tooltip:{trigger:'axis'},grid:{left:54,right:16,top:14,bottom:48},
+    xAxis:{type:'category',data:k.dates,axisLabel:{color:'#94a3b8',fontSize:10}},
+    yAxis:{scale:true,axisLabel:{color:'#94a3b8'},splitLine:{lineStyle:{color:'#1e293b'}}},
+    dataZoom:[{type:'inside',start:Math.max(0,(1-60/k.dates.length)*100)},{type:'slider',bottom:12,height:14,start:Math.max(0,(1-60/k.dates.length)*100)}],
+    series:[{type:'candlestick',data:k.ohlc,itemStyle:{color:'#ef4444',color0:'#22c55e',borderColor:'#ef4444',borderColor0:'#22c55e'},
+      markLine:{silent:true,symbol:'none',data:[
+        {yAxis:d.pct_stop,lineStyle:{color:'#ef4444',width:2.5},label:{formatter:'🔴主止损-10% '+d.pct_stop,color:'#fca5a5',fontSize:10,position:'insideEndBottom'}},
+        {yAxis:d.ev_low,lineStyle:{color:'#f59e0b',width:2},label:{formatter:'买入日最低 '+d.ev_low,color:'#fbbf24',fontSize:10,position:'insideEndTop'}},
+        {yAxis:d.atr_stop,lineStyle:{color:'#64748b',width:1,type:'dashed'},label:{formatter:'2-ATR参考 '+d.atr_stop,color:'#94a3b8',fontSize:9,position:'insideStartBottom'}},
+        {yAxis:d.buy,lineStyle:{color:'#60a5fa',type:'dotted'},label:{formatter:'买入 '+d.buy,color:'#93c5fd',fontSize:10}}]},
+      markPoint:evIdx>=0?{symbol:'pin',symbolSize:30,data:[{coord:[evIdx,d.ev_low],value:'买',itemStyle:{color:'#f59e0b'}}]}:undefined}]},true);
+  }catch(e){if(ownRequest!==STOP_REQUEST_NO)return;document.getElementById('stopStatus').textContent='K线加载失败: '+e.message;STOPCHART.clear();}
+}
+const $=id=>document.getElementById(id);
+let CHART=null, ROWS=[], SK="alpha", SD=true;
+function fmt(v,suf="%"){ return v==null?"-":(v>=0?"+":"")+v.toFixed(2)+suf; }
+function cls(v){ return v==null?"dim":(v>0?"pos":(v<0?"neg":"")); }
+function drawChart(d){
+  if(!window.echarts){$("chart").innerHTML='<div style="display:grid;place-items:center;height:100%;padding:20px;color:#fbbf24;text-align:center">收益图表组件加载失败，持仓指标和逐票明细仍可正常查看。</div>';return;}
+  if(!CHART) CHART=echarts.init($("chart"));
+  CHART.setOption({
+    backgroundColor:"transparent",
+    tooltip:{trigger:"axis",valueFormatter:v=>v==null?"-":v.toFixed(2)+"%"},
+    legend:{data:["我的持仓","基准 "+d.bench_name],textStyle:{color:"#cbd5e1"},top:4},
+    grid:{left:48,right:16,top:38,bottom:30},
+    xAxis:{type:"category",data:d.dates,axisLabel:{color:"#64748b",fontSize:10},axisLine:{lineStyle:{color:"#334155"}}},
+    yAxis:{type:"value",axisLabel:{color:"#64748b",formatter:"{value}%"},splitLine:{lineStyle:{color:"#1e293b"}}},
+    series:[
+      {name:"我的持仓",type:"line",data:d.portfolio,showSymbol:false,lineStyle:{width:2.2,color:"#34d399"},itemStyle:{color:"#34d399"}},
+      {name:"基准 "+d.bench_name,type:"line",data:d.benchmark,showSymbol:false,lineStyle:{width:1.8,color:"#f87171"},itemStyle:{color:"#f87171"}},
+    ],
+  }, true);
+}
+function drawSum(s,d){
+  if(!s){ $("sum").innerHTML=""; return; }
+  $("sum").innerHTML=`
+    <div class="kpi"><div class="v ${cls(s.port_last)}">${fmt(s.port_last)}</div><div class="l">我的持仓收益</div></div>
+    <div class="kpi"><div class="v ${cls(s.bench_last)}">${fmt(s.bench_last)}</div><div class="l">基准 ${d.bench_name}</div></div>
+    <div class="kpi"><div class="v ${cls(s.alpha_last)}">${fmt(s.alpha_last)}</div><div class="l">超额(alpha)</div></div>
+    <div class="kpi"><div class="v">${s.n_win}/${s.n}</div><div class="l">跑赢基准只数</div></div>`+
+    (s.total_mktval!=null?`<div class="kpi"><div class="v">¥${s.total_mktval.toLocaleString()}</div><div class="l">持有总市值</div></div>`:"");
+}
+function drawMetrics(m,bn){
+  if(!m||!m.portfolio){ $("metrics").innerHTML=""; return; }
+  const P=m&&m.portfolio||{}, B=m&&m.benchmark||{};
+  if(!P.days){ $("metrics").innerHTML=""; return; }
+  const ROWS=[["总收益","total","%"],["年化","ann","%"],["年化波动","vol","%"],["夏普","sharpe",""],["最大回撤","maxdd","%"],["Calmar","calmar",""],["日胜率","winrate","%"]];
+  const cell=(o,k)=>{ const v=o[k]; if(v==null) return '<span class="dim">-</span>';
+    const c=(k==="maxdd")?(v<0?"neg":""):((k==="sharpe"||k==="calmar"||k==="total"||k==="ann")?cls(v):"");
+    return `<span class="${c}">${(v>=0&&k!=="winrate"&&k!=="vol")?"+":""}${v}${ROWS.find(r=>r[1]===k)[2]}</span>`; };
+  let h='<div class="hd">📈 绩效指标 (QuantStats 式)</div><table style="margin-top:0"><thead><tr><th></th>'+ROWS.map(r=>`<th style="text-align:right">${r[0]}</th>`).join('')+'</tr></thead><tbody>';
+  h+=`<tr><td>我的持仓</td>`+ROWS.map(r=>`<td>${cell(P,r[1])}</td>`).join('')+'</tr>';
+  h+=`<tr><td class="dim">基准 ${bn}</td>`+ROWS.map(r=>`<td>${cell(B,r[1])}</td>`).join('')+'</tr>';
+  h+='</tbody></table><div class="note" style="margin-top:6px">日收益由"等权持仓累计收益率"曲线还原。夏普=日均/日波动×√252(未减无风险利率)。最大回撤=净值曲线峰谷最大跌幅。Calmar=年化/|最大回撤|。<b>仅供研究, 持仓只数少时指标方差大、仅作参考。</b></div>';
+  $("metrics").innerHTML=h;
+}
+function drawTbl(){
+  if(!ROWS.length){ $("tbl").innerHTML='<div class="dim" style="padding:8px">无可计算持仓</div>'; return; }
+  const COLS=[["code","代码",r=>`<span class="scode">${r.code}</span>`],
+    ["name","简称",r=>(r.name||"")+(r.pending?` <span title="${r.pending_why||'今日新买'}" style="color:#fbbf24;font-size:10px">🆕新买</span>`:"")],
+    ["buy","买入日",r=>`<span class="dim">${r.buy}</span>`],["cost","成本",r=>r.cost],
+    ["last","现价",r=>r.last==null?(r.pending?'<span class="dim" title="盘中现价实时刷新, 今晚收盘后并入曲线">待实时</span>':'<span class="dim">-</span>'):r.last],
+    ["qty","数量",r=>r.qty==null?'<span class="dim">-</span>':r.qty],
+    ["mktval","市值",r=>r.mktval==null?'<span class="dim">-</span>':`<span style="color:#cbd5e1">${r.mktval.toLocaleString()}</span>`],
+    ["ret","持仓收益",r=>`<span class="${cls(r.ret)}">${fmt(r.ret)}</span>`],
+    ["idx_ret","基准同期",r=>`<span class="dim">${fmt(r.idx_ret)}</span>`],
+    ["alpha","超额",r=>`<span class="${cls(r.alpha)}">${fmt(r.alpha)}</span>`],
+    ["stop","止损线",r=>`<span class="lk" style="cursor:pointer;color:#7dd3fc" onclick="showStop('${r.code}','${(r.name||'').replace(/'/g,'')}','${r.buy||''}','${r.cost||''}')">🛡️查看</span>`]];
+  const sorted=[...ROWS].sort((a,b)=>{const x=a[SK],y=b[SK]; if(x==null)return 1; if(y==null)return -1; return typeof x==="string"?(SD?(""+y).localeCompare(x):(""+x).localeCompare(y)):(SD?y-x:x-y);});
+  const arr=k=>SK===k?(SD?" ▼":" ▲"):"";
+  let h='<table><thead><tr>'+COLS.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}${arr(c[0])}</th>`).join('')+'</tr></thead><tbody>';
+  h+=sorted.map(r=>'<tr>'+COLS.map(c=>`<td>${c[2](r)}</td>`).join('')+'</tr>').join('');
+  h+='</tbody></table>';
+  $("tbl").innerHTML=h;
+}
+function sortBy(k){ if(SK===k)SD=!SD; else {SK=k;SD=true;} drawTbl(); }
+let LASTD=null;
+async function load(){
+  let d;
+  try{
+    const response=await fetch("/api/holdings_curve?bench="+encodeURIComponent($("bench").value),{cache:"no-store"});
+    d=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(d.message||d.error||`HTTP ${response.status}`);
+  }catch(e){
+    LASTD=null;SUMMARY=null;ROWS=[];
+    $("asof").textContent="加载失败";
+    $("chart").style.display="none";
+    $("emptynote").style.display="block";
+    $("emptynote").textContent="持仓数据加载失败: "+e.message;
+    $("tbl").innerHTML='<div class="dim" style="padding:8px">逐票明细暂时无法加载</div>';
+    drawSum(null);drawMetrics(null,"");
+    return false;
+  }
+  LASTD=d; SUMMARY=d.summary||null; BENCHNAME=d.bench_name||"";
+  ROWS=d.holdings||[];
+  const s0=d.summary||{};
+  let asof=d.dates&&d.dates.length?("截至 "+d.dates[d.dates.length-1]):"";
+  if(s0.bench_asof && d.dates&&d.dates.length && s0.bench_asof < d.dates[d.dates.length-1])
+    asof+=` · ⚠️基准指数数据仅到 ${s0.bench_asof}, 之后基准线持平`;
+  $("asof").textContent=asof;
+  if(!d.dates||!d.dates.length){
+    $("chart").style.display="none"; $("emptynote").style.display="block";
+    $("emptynote").innerHTML="📭 "+(d.message||"暂无数据")+'<br><span style="color:#64748b">持仓在 <a href="/sell">卖出提醒</a> 页录入/修改(需成本价+买入日)。若提示"数据未覆盖买入日"=NAS行情/指数待更新, 非录入问题。</span>';
+    drawSum(null); drawTbl(); drawNotIncluded(d); return true;
+  }
+  $("chart").style.display="block"; $("emptynote").style.display="none";
+  drawSum(d.summary,d); drawChart(d); drawMetrics(d.metrics,d.bench_name); drawTbl();
+  drawNotIncluded(d);
+  return true;
+}
+// 未纳入区: 缺成本价/买入日(excluded) + 有成本价但行情库无数据/未覆盖买入日(skipped) —— 避免持仓在本页"静默消失"
+function drawNotIncluded(d){
+  const ex=d.excluded||[], sk=d.skipped||[];
+  let box=$("notincl"); if(!box){ box=document.createElement("div"); box.id="notincl"; box.style.marginTop="14px"; $("tbl").after(box); }
+  if(!ex.length && !sk.length){ box.innerHTML=""; return; }
+  let h='<div class="note" style="border-color:#7a5a2a;background:#241c10"><b style="color:#fbbf24">⚠️ 未纳入收益对比的持仓 ('+(ex.length+sk.length)+'只)</b> — 这些没进上面的曲线/表:';
+  h+='<table style="margin-top:6px;font-size:12px"><thead><tr><th style="text-align:left">代码</th><th style="text-align:left">简称</th><th style="text-align:left">原因</th></tr></thead><tbody>';
+  ex.forEach(r=>{ h+=`<tr><td>${r.code}</td><td>${r.name||''}</td><td style="color:#fca5a5">缺『${(r.missing||[]).join(' + ')}』→ 去<a href="/sell">卖出提醒</a>补上</td></tr>`; });
+  sk.forEach(r=>{ h+=`<tr><td>${r.code}</td><td>${r.name||''}</td><td style="color:#fca5a5">${r.why||'无法计算'}</td></tr>`; });
+  h+='</tbody></table><div style="color:#94a3b8;margin-top:4px">本页要算收益曲线, 每只需<b>成本价+买入日</b>且行情库有数据; 创业板/北交所等若行情库未覆盖会提示取不到。</div></div>';
+  box.innerHTML=h;
+}
+window.addEventListener("resize", ()=>CHART&&CHART.resize());
+// ===== 现价实时更新(腾讯行情, 盘中每15秒轮询): 更新逐票 现价/持仓收益/市值 + 我的持仓收益/总市值/超额 KPI =====
+let RTPOLL=null;
+function inTradeHours(){ const d=new Date(); const wd=d.getDay(); if(wd===0||wd===6) return false;
+  const t=d.getHours()*60+d.getMinutes(); return (t>=565&&t<=690)||(t>=778&&t<=901); } // 9:25-11:30, 12:58-15:01
+async function liveQuotes(){
+  if(!ROWS.length || !SUMMARY) return;
+  try{
+    const d=await (await fetch("/api/holdings_realtime?bench="+$("bench").value)).json();
+    const q=d.quotes||{}; let any=false;
+    ROWS.forEach(r=>{ const x=q[r.code]; if(x&&x.price){ any=true;
+      r.last=x.price; r.ret=Math.round((x.price/r.cost-1)*10000)/100;
+      if(r.qty) r.mktval=Math.round(x.price*r.qty*100)/100;
+      if(r.idx_ret!=null) r.alpha=Math.round((r.ret-r.idx_ret)*100)/100; } });
+    if(!any) return;
+    drawTbl();
+    const rets=ROWS.map(r=>r.ret).filter(v=>v!=null);
+    const port=rets.length?Math.round(rets.reduce((a,b)=>a+b,0)/rets.length*100)/100:null;
+    const mvs=ROWS.map(r=>r.mktval).filter(v=>v!=null);
+    const tmv=mvs.length?Math.round(mvs.reduce((a,b)=>a+b,0)*100)/100:SUMMARY.total_mktval;
+    const nwin=ROWS.filter(r=>r.alpha!=null&&r.alpha>0).length;
+    drawSum({...SUMMARY, port_last:port, total_mktval:tmv, n_win:nwin,
+      alpha_last:(port!=null&&SUMMARY.bench_last!=null)?Math.round((port-SUMMARY.bench_last)*100)/100:SUMMARY.alpha_last},
+      {bench_name:BENCHNAME});
+    $("asof").textContent="现价实时(腾讯) "+(d.ts||"")+" · 基准/曲线截至收盘";
+  }catch(e){}
+}
+// ===== 持仓当日分时图(做T): 各股+基准 距昨收% 叠加 =====
+let ICHART=null;
+const ICOLORS=["#34d399","#60a5fa","#fbbf24","#f87171","#c4b5fd","#5eead4","#fb923c","#a3e635","#f472b6","#38bdf8"];
+async function drawIntraday(){
+  if(!window.echarts){$("its").textContent="(图表组件加载失败)";$("ichart").innerHTML='<div style="display:grid;place-items:center;height:100%;color:#fbbf24">分时图暂时不可用</div>';return;}
+  try{
+    const d=await (await fetch("/api/holdings_intraday?bench="+$("bench").value)).json();
+    if(!d.axis||!d.axis.length){ $("its").textContent="(无分时数据/非交易时段)"; return; }
+    if(!ICHART) ICHART=echarts.init($("ichart"));
+    const series=(d.series||[]).map((s,i)=>({name:(s.name||s.code), type:"line", data:s.pct, showSymbol:false,
+      connectNulls:true, lineStyle:{width:1.8,color:ICOLORS[i%ICOLORS.length]}, itemStyle:{color:ICOLORS[i%ICOLORS.length]}}));
+    if(d.bench) series.push({name:d.bench.name, type:"line", data:d.bench.pct, showSymbol:false, connectNulls:true,
+      lineStyle:{width:1.6,color:"#94a3b8",type:"dashed"}, itemStyle:{color:"#94a3b8"}});
+    ICHART.setOption({backgroundColor:"transparent",
+      tooltip:{trigger:"axis",valueFormatter:v=>v==null?"-":(v>=0?"+":"")+v.toFixed(2)+"%"},
+      legend:{type:"scroll",textStyle:{color:"#cbd5e1",fontSize:11},top:2},
+      grid:{left:46,right:14,top:32,bottom:24},
+      xAxis:{type:"category",data:d.axis,axisLabel:{color:"#64748b",fontSize:10},axisLine:{lineStyle:{color:"#334155"}}},
+      yAxis:{type:"value",axisLabel:{color:"#64748b",formatter:"{value}%"},splitLine:{lineStyle:{color:"#1e293b"}}},
+      series},true);
+    $("its").textContent="刷新 "+(d.ts||"");
+  }catch(e){}
+}
+let SUMMARY=null, BENCHNAME="";
+$("bench").addEventListener("change", ()=>{ load(); drawIntraday(); });
+// 行情数据新鲜度徽标: 提示是否有股票bin滞后(如创业板漏更新), 点"补全行情数据"触发自检+重建
+async function loadCoverage(){
+  try{
+    const c=await (await fetch("/api/qlib_coverage")).json();
+    const el=$("cov"); if(!el) return;
+    if(c.ok===true) el.innerHTML='📅 行情数据 <b style="color:#86efac">全覆盖</b> · 最新 '+(c.latest_parquet||'')+' · '+(c.n_total||0)+'只';
+    else if(c.ok===false) el.innerHTML='⚠️ <b style="color:#fbbf24">'+(c.n_lagging||0)+'只行情滞后</b>(最新应到 '+(c.latest_parquet||'')+',部分股票未更新)→ 点右侧补全';
+    else el.innerHTML='<span style="color:#64748b">'+(c.message||'行情数据状态未知')+'</span>';
+  }catch(e){}
+}
+(async()=>{ const loaded=await load(); SUMMARY=LASTD&&LASTD.summary||null; BENCHNAME=LASTD&&LASTD.bench_name||"";
+  if(!loaded)return;
+  liveQuotes(); drawIntraday(); loadCoverage();
+  RTPOLL=setInterval(()=>{ if(inTradeHours()) liveQuotes(); }, 15000);
+  setInterval(()=>{ if(inTradeHours()) drawIntraday(); }, 30000); })();
+window.addEventListener("resize", ()=>ICHART&&ICHART.resize());
+</script>
+<script src="/static/refresh.js"></script>
+</body>
+</html>

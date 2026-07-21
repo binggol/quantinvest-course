@@ -1,0 +1,111 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>跨市场映射</title><script src="/static/echarts.min.js"></script><script src="/static/kline_contract.js"></script>
+  <style>
+  body{margin:0;background:#07111f;color:#e5edf7;font:14px/1.5 system-ui,"Microsoft YaHei"}.topnav{padding:10px 18px;background:#0b1725}.topnav a{color:#9fb4ca;text-decoration:none;margin-right:10px}.topnav .active{color:#67e8f9}.wrap{padding:20px}.titlebar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.rfbar{display:flex;align-items:center;gap:10px}.rfbar button{padding:8px 13px;background:#0e7490;color:#ecfeff;border:1px solid #22d3ee;border-radius:8px;cursor:pointer}.rfbar button:disabled{opacity:.55;cursor:not-allowed}.health,.panel,.chart{background:#102033;border:1px solid #29445f;border-radius:12px}.health,.panel{padding:14px}.tabs{display:flex;gap:8px;margin:14px 0}.tabs button{padding:7px 13px;background:#173550;color:#d7e5f2;border:1px solid #31516e;border-radius:8px}.leader-strip{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.pill{background:#132b41;border:1px solid #31516e;border-radius:999px;padding:5px 10px;color:#d7e5f2;font-size:12px}.chart-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.chart{height:310px}.selected-line{margin:8px 0 10px;color:#d7e5f2}.chart{height:310px}.rank-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.row{padding:9px;border-bottom:1px solid #29445f;cursor:pointer}.row:hover,.row.active{background:#173550}.warn{color:#fca5a5}.good{color:#86efac}.muted{color:#8fa4bd}@media(max-width:900px){.chart-grid,.rank-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+{% include "_nav.html" %}
+<main class="wrap">
+ <div class="titlebar"><h1>跨市场映射 · 存储</h1><div class="rfbar"><button id="rfbtn" onclick="doRefresh('cross_market')">刷新数据</button><span id="rfst" class="muted"></span></div></div>
+ <section id="data-health" class="health">加载数据状态…</section>
+ <section id="leader-strip" class="leader-strip"></section>
+ <div class="tabs"><button data-mode="intraday">分时联动</button><button data-mode="daily">日K研究</button><button data-mode="replay">信号回放</button></div>
+ <div id="selected-line" class="selected-line"></div>
+ <section class="chart-grid"><div id="chart-us" class="chart"></div><div id="chart-korea" class="chart"></div><div id="chart-cn" class="chart"></div></section>
+ <section class="rank-grid"><div class="panel"><h2 class="good">上涨受益榜</h2><div id="upside-list"></div></div><div class="panel"><h2 class="warn">下跌风险榜</h2><div id="downside-list"></div></div></section>
+ <section class="panel" style="margin-top:14px"><h2>持仓预警</h2><div id="holdings-alerts"></div></section>
+</main>
+<script>
+const state={data:null,mode:"intraday",selected:null,cnIntraday:{}}, charts={us:echarts.init(document.getElementById("chart-us")),korea:echarts.init(document.getElementById("chart-korea")),cn:echarts.init(document.getElementById("chart-cn"))};
+let DRAW_REQUEST_NO=0;
+const NAMES={MU:"美光",SNDK:"闪迪",SMH:"VanEck半导体ETF",SOXX:"iShares半导体ETF","000660.KS":"SK海力士","005930.KS":"三星电子"};
+function label(code,name){return `${name||NAMES[code]||code} ${code?`(${code})`:""}`}
+function pctText(v){return v==null||Number.isNaN(v)?"—":`${v>=0?"+":""}${Number(v).toFixed(2)}%`}
+function pctClass(v){return v==null||Number.isNaN(v)?"muted":(v>=0?"good":"warn")}
+function cnPct(code){const pts=state.data?.charts?.cn?.[code]?.daily?.points||[]; if(pts.length<2) return null; const a=pts[pts.length-2].close,b=pts[pts.length-1].close; return a?((b/a-1)*100):null}
+function krPct(symbol){const pts=(state.data?.charts?.korea?.intraday?.points||[]).filter(x=>x.symbol===symbol); if(pts.length<2) return null; const a=pts[0].price,b=pts[pts.length-1].price; return a?((b/a-1)*100):null}
+function pick(x){return x?.[state.mode]||x?.daily||x?.intraday||null}
+function pointKey(x){return x.t||x.date||x.market_time||x.market_at}
+function codeForIntraday(code){
+  const s=String(code||"").trim();
+  if(!s)return "";
+  if(s.startsWith("sh")||s.startsWith("sz")||s.startsWith("bj"))return s;
+  const n=(s.match(/\d{6}/)||[""])[0];
+  if(!n)return s;
+  if(s.includes("."))return s;
+  return (n[0]==="6"?"sh":(n[0]==="8"||n[0]==="4"?"bj":"sz"))+n;
+}
+function intradayToChart(d){
+  const times=d?.times||[], close=d?.close||[], pre=Number(d?.pre_close||0);
+  if(!times.length||!close.length)return null;
+  return {mode:"intraday",points:times.map((t,i)=>({t,price:close[i],pct:pre?((close[i]/pre-1)*100):null}))};
+}
+async function cnIntraday(code){
+  const key=codeForIntraday(code);
+  if(!key)return null;
+  if(state.cnIntraday[key]!==undefined)return state.cnIntraday[key];
+  state.cnIntraday[key]=null;
+  try{
+    const d=await fetch(`/api/intraday?code=${encodeURIComponent(key)}&freq=5min&_=${Date.now()}`,{cache:"no-store"}).then(r=>r.json());
+    state.cnIntraday[key]=intradayToChart(d);
+  }catch(e){state.cnIntraday[key]=null}
+  return state.cnIntraday[key];
+}
+function yValue(row,p){
+  if(!row)return null;
+  if(p?.mode==="intraday"){
+    if(row.pct!=null)return row.pct;
+    if(row.return_pct!=null)return row.return_pct;
+  }
+  return row.price;
+}
+function option(title,p){
+  const a=p?.points||[], k=a.some(x=>x&&x.open!==undefined), multi=a.some(x=>x.symbol);
+  if(k){
+    try{QIKline.assertPointRows(a);title+=` · 不复权`;}
+    catch(e){return{backgroundColor:"transparent",title:{text:`${title} · K线数据错误`,subtext:e.message,left:"center",top:"35%",textStyle:{color:"#fca5a5",fontSize:14},subtextStyle:{color:"#8fa4bd",fontSize:11}},xAxis:{show:false},yAxis:{show:false},series:[]};}
+  }
+  const xdata=[...new Set(a.map(pointKey).filter(Boolean))];
+  const pctMode=p?.mode==="intraday"&&!k;
+  let series;
+  if(multi){
+    const syms=[...new Set(a.map(x=>x.symbol).filter(Boolean))];
+    series=syms.map(sym=>{
+      const rows=a.filter(x=>x.symbol===sym);
+      return {
+        name:label(sym),
+        type:k?"candlestick":"line",
+        showSymbol:false,
+        data:xdata.map(t=>{
+          const r=rows.find(x=>pointKey(x)===t);
+          if(!r) return null;
+          return k?[r.open,r.close,r.low,r.high]:yValue(r,p);
+        })
+      };
+    });
+  }else{
+    series=[{type:k?"candlestick":"line",showSymbol:false,data:a.map(x=>k?[x.open,x.close,x.low,x.high]:yValue(x,p))}];
+  }
+  return{backgroundColor:"transparent",title:{text:title,textStyle:{color:"#e5edf7",fontSize:14}},legend:{top:24,textStyle:{color:"#8fa4bd"}},tooltip:{trigger:"axis",valueFormatter:v=>pctMode&&v!=null?`${Number(v).toFixed(2)}%`:v},xAxis:{type:"category",data:xdata,axisLabel:{color:"#8fa4bd"}},yAxis:{scale:true,axisLabel:{color:"#8fa4bd",formatter:v=>pctMode?`${Number(v).toFixed(1)}%`:v}},series}
+}
+async function draw(){
+  const ownRequest=++DRAW_REQUEST_NO,d=state.data||{},c=d.charts||{},mode=state.mode,s=state.selected||d.upside?.[0]?.code;
+  const row=(d.upside||[]).find(x=>x.code===s)||(d.downside||[]).find(x=>x.code===s)||{},p=cnPct(s);
+  let cnChart=pick(c.cn?.[s]);
+  if(mode==="intraday"){const live=await cnIntraday(s);if(ownRequest!==DRAW_REQUEST_NO)return;if(live)cnChart=live;}
+  if(ownRequest!==DRAW_REQUEST_NO)return;
+  document.getElementById("selected-line").innerHTML=`当前A股：<b>${label(s,row.name)}</b> <span class="${pctClass(p)}">${pctText(p)}</span>`;
+  document.querySelectorAll('.row[data-code]').forEach(el=>el.classList.toggle('active',el.dataset.code===s));
+  charts.us.setOption(option("美股代表：美光/闪迪/半导体ETF",c.us?.[mode]||c.us?.daily||c.us?.intraday||null),true);
+  charts.korea.setOption(option("韩国代表：SK海力士/三星电子",c.korea?.[mode]||c.korea?.daily||c.korea?.intraday||null),true);
+  charts.cn.setOption(option((mode==="intraday"?"A股分时：":"A股代表：")+label(s,row.name),cnChart),true);
+}
+function fill(id,a){const e=document.getElementById(id);e.innerHTML="";(a||[]).forEach((r,i)=>{const p=cnPct(r.code);const x=document.createElement("div");x.className="row";x.dataset.code=r.code;x.innerHTML=`${i+1}. ${r.name||r.code}　<span class="${pctClass(p)}">${pctText(p)}</span>　强度 ${r.score??"—"}　纯度 ${r.business_purity??"—"}`;x.onclick=()=>{state.selected=r.code;draw()};e.appendChild(x)});if(!e.children.length)e.innerHTML='<span class="muted">暂无达到展示门槛的股票</span>'}
+function leaders(d){const us=(d.leaders||[]).map(x=>`<span class="pill">${label(x.symbol,x.name)} <span class="${pctClass(x.return_pct)}">${pctText(x.return_pct)}</span></span>`).join("");const kr=`<span class="pill">${label("000660.KS")} <span class="${pctClass(krPct("000660.KS"))}">${pctText(krPct("000660.KS"))}</span></span><span class="pill">${label("005930.KS")} <span class="${pctClass(krPct("005930.KS"))}">${pctText(krPct("005930.KS"))}</span></span>`;document.getElementById("leader-strip").innerHTML=us+kr}
+async function load(){const d=await fetch(`/api/cross_market?sector=storage&_=${Date.now()}`,{cache:"no-store"}).then(r=>r.json());state.data=d;state.selected=d.upside?.[0]?.code||d.downside?.[0]?.code||null;const h=d.data_health||{};document.getElementById("data-health").innerHTML=`模式：<b>${d.mode==="live"?"允许实盘":"研究观察"}</b>　代表标的驱动：美光/闪迪/SK海力士/三星　市场时间：${h.market_at||"—"}　延迟：${h.age_minutes??"—"}分钟${d.message?`<br>${d.message}`:""}`;leaders(d);fill("upside-list",d.upside);fill("downside-list",d.downside);fill("holdings-alerts",d.holdings);draw()}
+document.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{state.mode=b.dataset.mode;draw()});window.addEventListener("resize",()=>Object.values(charts).forEach(c=>c.resize()));load();
+</script><script src="/static/refresh.js"></script></body></html>

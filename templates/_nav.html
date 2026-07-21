@@ -1,0 +1,25 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}">
+<button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-nav" aria-label="打开导航">&#9776;</button>
+<nav class="topnav permission-nav" id="main-nav" aria-label="主导航">
+  {% for group in navigation_groups %}
+    <details class="nav-group"{% if request.path in group.links | map(attribute='path') | list %} data-current="true"{% endif %}>
+      <summary>
+        <span>{{ group.label }}</span>
+        {% for link in group.links %}{% if request.path == link.path %}<small>{{ link.label }}</small>{% endif %}{% endfor %}
+      </summary>
+      <div class="nav-links">
+        {% for link in group.links %}
+          <a href="{{ link.path }}"{% if request.path == link.path %} class="active" aria-current="page"{% endif %}>{{ link.label }}</a>
+        {% endfor %}
+      </div>
+    </details>
+  {% endfor %}
+  {% if current_member %}
+    <div class="nav-account">
+      <a href="{{ url_for('account_page') }}">{{ current_member.email }} · {{ plan_label }}</a>
+      <a href="{{ url_for('logout') }}">退出</a>
+    </div>
+  {% endif %}
+</nav>
+<span id="csrf-context" data-csrf-token="{{ csrf_token }}" hidden></span>
+<script src="{{ url_for('static', filename='security.js') }}"></script>

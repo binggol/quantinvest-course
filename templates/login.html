@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>会员登录 · QuantInvest</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#08111f;color:#e5edf7;font:14px/1.5 system-ui,"Microsoft YaHei"}
+    .box{width:min(420px,calc(100vw - 32px));background:#101c2e;border:1px solid #29445f;border-radius:8px;padding:22px}
+    h1{margin:0 0 14px;font-size:24px}.muted{color:#8fa4bd}.err{background:#3b1218;border:1px solid #7f1d1d;color:#fecaca;border-radius:6px;padding:9px;margin:10px 0}
+    label{display:block;margin-top:12px;color:#cbd5e1}input{width:100%;box-sizing:border-box;margin-top:5px;padding:10px;border-radius:6px;border:1px solid #334155;background:#0b1423;color:#e5edf7}
+    button{width:100%;margin-top:18px;padding:10px;border:1px solid #22d3ee;background:#0e7490;color:#ecfeff;border-radius:6px;cursor:pointer;font-weight:700}
+    .foot{margin-top:14px;font-size:12px;color:#8fa4bd}.foot a,.agree a{color:#67e8f9}.agree{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.5}.agree input{width:auto;margin:3px 0 0;flex:none}
+  </style>
+</head>
+<body>
+  <main class="box">
+    <h1>QuantInvest 数据服务</h1>
+    <div class="muted">登录后使用公开数据整理、查询和中性统计工具。</div>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <form method="post" action="{{ url_for('login', next=next_url) }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+      <label>邮箱
+        <input name="email" type="email" autocomplete="username" required autofocus>
+      </label>
+      <label>密码
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <label class="agree"><input name="accept_terms" type="checkbox" value="1"><span>我已阅读并同意<a href="{{ url_for('terms_page') }}" target="_blank">服务协议</a>、<a href="{{ url_for('privacy_page') }}" target="_blank">隐私政策</a>和<a href="{{ url_for('risk_disclosure_page') }}" target="_blank">风险揭示</a></span></label>
+      <button type="submit">登录</button>
+    </form>
+    <div class="foot">本服务提供软件、公开数据整理和中性统计工具，不提供具体证券推荐、买卖时机或组合建议。<br><a href="{{ url_for('service_info') }}">经营主体与服务信息</a></div>
+  </main>
+</body>
+</html>

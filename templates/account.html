@@ -1,0 +1,5 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>账户与套餐 · QuantInvest</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}"></head>
+<body class="member-shell"><header class="member-head"><div class="brand-row"><h1>QuantInvest 数据服务</h1></div>{% include "_nav.html" %}</header><main class="member-main">
+<div class="page-title"><h2>账户与套餐</h2><div class="muted">{{ current_member.email }}</div></div>
+<section class="summary-grid"><div class="summary-item"><span class="muted">角色</span><b>{{ current_member.role }}</b></div><div class="summary-item"><span class="muted">套餐</span><b>{{ plan_label }}</b></div><div class="summary-item"><span class="muted">到期日</span><b>{{ current_member.membership_until or "不适用" }}</b></div></section>
+<section class="section legal-copy"><h3>当前权益</h3><ul>{% for feature in member_feature_labels %}<li>{{ feature }}</li>{% endfor %}</ul></section>{% include "_legal_links.html" %}</main></body></html>

@@ -1,0 +1,256 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>顾问Pro+滚动业绩 | quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<style>
+.wrap{max-width:1280px;margin:0 auto;padding:14px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:13px 15px;margin:12px 0}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.kpi{background:#0b1220;border:1px solid #1e293b;border-radius:8px;padding:10px}.kpi b{font-size:22px;color:#e2e8f0}.kpi span{display:block;color:#94a3b8;font-size:12px;margin-top:2px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}.tabs button{border:1px solid #334155;background:#111827;color:#cbd5e1;border-radius:6px;padding:7px 10px}.tabs button.active{background:#2563eb;color:#fff;border-color:#3b82f6}
+.tablewrap{max-height:560px;overflow:auto;border:1px solid #1e293b;border-radius:8px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px solid #1e293b;padding:6px 8px;text-align:right;vertical-align:top}th{color:#94a3b8;background:#0f172a;position:sticky;top:0}td.l,th.l{text-align:left}
+.muted{color:#94a3b8;font-size:12px}.pos{color:#34d399}.neg{color:#f87171}.warn{color:#fbbf24}.danger{color:#f87171}
+.pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;background:#1e293b;color:#cbd5e1}
+.note{background:#111827;border:1px solid #334155;border-radius:8px;padding:10px 12px;color:#cbd5e1;font-size:12px;line-height:1.7}
+#plus-chart{width:100%;height:460px;margin:8px 0 14px}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <h1>顾问Pro+滚动业绩</h1>
+  <div class="muted">顾问Pro仍是主策略；滚动业绩只做增强、候补和冲突提示。Pro卖出但业绩命中的股票不会自动进入买入。</div>
+  <div class="bar"><button onclick="load()">刷新</button><span id="status" class="muted">加载中...</span></div>
+  <div class="grid" id="kpis"></div>
+  <div class="card">
+    <h2>执行分组</h2>
+    <div class="tabs" id="tabs"></div>
+    <div class="tablewrap"><table><thead><tr>
+      <th>#</th><th class="l">代码</th><th class="l">名称</th><th>原Pro动作</th><th>扣非增速</th><th>提升</th><th>公告日</th><th>评分</th><th class="l">解禁/协转/定增</th><th class="l">说明</th>
+    </tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>历史战绩对比</h2>
+    <div id="plus-chart"></div>
+    <div id="perfcompare" class="muted">加载中...</div>
+  </div>
+  <div class="card">
+    <h2>滚动业绩事件回测明细</h2>
+    <div id="backtest" class="muted">加载中...</div>
+  </div>
+  <div class="card">
+    <h2>使用口径</h2>
+    <div id="method" class="note"></div>
+  </div>
+</div>
+<script src="/static/unlock.js"></script>
+<script src="/static/kline_contract.js"></script>
+<script src="/static/money_flow_spark.js"></script>
+<script>
+let DATA=null, ACTIVE='enhanced_buy';
+let plusChart=null, plusResizeBound=false;
+const GROUPS=[
+  ['enhanced_buy','增强买入'],
+  ['enhanced_hold','增强持有'],
+  ['event_candidates','事件候补'],
+  ['conflicts','冲突提示'],
+  ['base_buy','Pro原买入'],
+  ['base_hold','Pro原持有'],
+  ['base_sell','Pro原卖出']
+];
+function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function pct(x){return x==null||x===''?'-':`${Number(x)>=0?'+':''}${Number(x).toFixed(1)}%`}
+function cls(x){return Number(x||0)>=0?'pos':'neg'}
+function actionClass(x){const s=String(x||'');return s.includes('卖')||s.includes('减')?'danger':(s.includes('持')||s.includes('观察')?'warn':'pos')}
+function renderKpis(s){
+  const rows=[
+    [s.n_enhanced_buy||0,'Pro买入+业绩增强'],
+    [s.n_enhanced_hold||0,'Pro持有+业绩增强'],
+    [s.n_event_candidates||0,'业绩独有候补'],
+    [s.n_conflicts||0,'Pro卖出冲突']
+  ];
+  document.getElementById('kpis').innerHTML=rows.map(x=>`<div class="kpi"><b>${x[0]}</b><span>${x[1]}</span></div>`).join('');
+}
+function renderTabs(){
+  document.getElementById('tabs').innerHTML=GROUPS.map(([key,label])=>{
+    const n=(DATA[key]||[]).length;
+    return `<button class="${ACTIVE===key?'active':''}" onclick="ACTIVE='${key}';renderRows();renderTabs()">${label} ${n}</button>`;
+  }).join('');
+}
+function moneyOutflowBadge(x){
+  const m=(x&&x.money_outflow)||{};
+  if(!m.status||m.status==="none")return "";
+  const flowColor=v=>Number(v)>0?"#22c55e":(Number(v)<0?"#ef4444":"#94a3b8");
+  const label=m.status==="high"?"资金流出前10%":"资金流出前20%";
+  const net15=m.outflow_15d_yi??m.outflow_10d_yi;
+  const mainNet15=m.main_net_15d_yi??m.main_net_10d_yi;
+  const ratio15=m.main_net_15d_ratio_pct??m.main_net_10d_ratio_pct;
+  const daily=m.outflow_15d_daily||m.outflow_10d_daily||[];
+  const net15Text=net15==null?"-":Number(net15).toFixed(2);
+  const days=daily.map(d=>`<span style="color:${flowColor(d.outflow_net_yi)}">${String(d.date||"").slice(5)}:${d.outflow_net_yi==null?"-":Number(d.outflow_net_yi).toFixed(2)}</span>`).join(" / ");
+  const title=`${m.label||label}: 当日净流出${m.outflow_net_yi??"-"}亿, 15日净流出${net15Text}亿, 15日主力净额${mainNet15??"-"}亿, 15日净额/成交额${ratio15??"-"}%, 流出分位${m.outflow_rank_pct??"-"}%, ${m.trade_date||""}`;
+  const spark=window.moneyFlowSparkHtml?moneyFlowSparkHtml(x.code||x.ts_code||x.symbol,m):"";
+  return ` <span title="${esc(title)}" style="display:inline-block;color:${flowColor(net15)};font-size:11px;font-weight:600">15日净流出${net15Text}亿</span><span style="display:block;color:#94a3b8;font-size:10px;line-height:1.35">日:${days||"-"}</span>${spark}`;
+}
+function renderRows(){
+  const rows=DATA[ACTIVE]||[];
+  document.getElementById('rows').innerHTML=rows.map((x,i)=>`<tr>
+    <td>${i+1}</td>
+    <td class="l"><a href="/report?code=${encodeURIComponent(x.code||'')}">${esc(x.code)}</a></td>
+    <td class="l">${esc(x.name)}${moneyOutflowBadge(x)}</td>
+    <td class="${actionClass(x.advisor_action)}">${esc(x.advisor_action||'-')}</td>
+    <td class="${cls(x.dedt_yoy)}">${pct(x.dedt_yoy)}</td>
+    <td class="${cls(x.delta)}">${pct(x.delta)}</td>
+    <td>${esc(x.ann_date||'-')}</td>
+    <td>${x.rolling_score==null?'-':Number(x.rolling_score).toFixed(1)}</td>
+    <td class="l">${typeof formatUnlockInfo==='function'?formatUnlockInfo(x):''}</td>
+    <td class="l">${esc(x.summary||x.bucket||'').slice(0,100)}</td>
+  </tr>`).join('')||'<tr><td colspan="10" class="l muted">暂无数据</td></tr>';
+}
+function renderBacktest(bt){
+  const timed=(bt||{}).timed||{}, sum=timed.summary||{};
+  const mc=(bt||{}).announcement_time_match_counts||{};
+  const variants=timed.rolling_portfolio_variants||{};
+  const hs=['5','10','20','60'];
+  const names=[
+    ['base','原始滚动业绩'],['market_risk','市场风控'],
+    ['advisor_gap','Pro未覆盖'],['advisor_gap_cool','Pro未覆盖不过热'],
+    ['advisor_gap_cool_gap5','高开<5%'],['advisor_gap_cool_gap8','高开<8%'],
+    ['advisor_gap_cool_top10','Top10'],['advisor_gap_cool_top20','Top20'],
+    ['advisor_gap_cool_g50','扣非>50%'],['advisor_gap_cool_g100','扣非>100%'],
+    ['advisor_gap_cool_d20','改善>20'],['advisor_gap_cool_d50','改善>50'],
+    ['advisor_gap_cool_ma20','站上20日线'],['advisor_gap_cool_mom','动量排序'],
+    ['advisor_gap_cool_ma20_mom','20日线+动量']
+  ];
+  const vtable=names.map(([k,label])=>{
+    const s=((variants[k]||{}).summary)||{};
+    return `<tr><td class="l">${label}</td><td>${s.n||0}</td><td>${s.final_nav??'-'}</td><td class="${cls(s.total_pct)}">${pct(s.total_pct)}</td><td class="${cls(s.mdd_pct)}">${pct(s.mdd_pct)}</td><td>${s.sharpe??'-'}</td><td>${s.win_rate_pct==null?'-':s.win_rate_pct+'%'}</td></tr>`;
+  }).join('');
+  document.getElementById('backtest').innerHTML=
+    `<div class="muted">巨潮时间匹配：同日 ${mc.same||0}，相邻日 ${mc.nearby||0}，缺失 ${mc.missing||0}</div>`+
+    `<h3>滚动组合风控对比</h3><table><thead><tr><th class="l">版本</th><th>天数</th><th>最终净值</th><th>总收益</th><th>最大回撤</th><th>夏普</th><th>日胜率</th></tr></thead><tbody>${vtable}</tbody></table>`+
+    `<table><thead><tr><th>持有期</th><th>样本</th><th>平均收益</th><th>中位数</th><th>胜率</th><th>夏普</th></tr></thead><tbody>`+
+    hs.map(h=>{const s=sum[h]||{};return `<tr><td>${h}日</td><td>${s.n||0}</td><td class="${cls(s.mean_pct)}">${pct(s.mean_pct)}</td><td class="${cls(s.median_pct)}">${pct(s.median_pct)}</td><td>${s.win_rate_pct==null?'-':s.win_rate_pct+'%'}</td><td>${s.sharpe??'-'}</td></tr>`}).join('')+
+    `</tbody></table>`;
+}
+function renderPerfCompare(d){
+  const pc=d.performance_compare||{}, a=pc.advisor_pro||{}, r=pc.rolling_earnings_10d||{}, diff=pc.diff||{};
+  function row(label,x){
+    return `<tr><td class="l">${label}</td><td>${x.n??'-'}</td><td class="${cls(x.ann_pct)}">${pct(x.ann_pct)}</td><td>${x.sharpe??'-'}</td><td>${x.win_rate_pct==null?'-':Number(x.win_rate_pct).toFixed(1)+'%'}</td><td>${x.final_nav??'-'}</td><td>${x.years??'-'}</td></tr>`;
+  }
+  document.getElementById('perfcompare').innerHTML=
+    `<table><thead><tr><th class="l">口径</th><th>样本/期数</th><th>年化/折算</th><th>夏普</th><th>胜率</th><th>累计净值</th><th>年数</th></tr></thead><tbody>`+
+    row(a.label||'顾问Pro对冲净超额',a)+
+    row(r.label||'滚动业绩10日事件回测',r)+
+    `<tr><td class="l">差值：滚动业绩 - 顾问Pro</td><td>-</td><td class="${cls(diff.ann_pct)}">${pct(diff.ann_pct)}</td><td>${diff.sharpe??'-'}</td><td>${diff.win_rate_pct==null?'-':Number(diff.win_rate_pct).toFixed(1)+'%'}</td><td>-</td><td>-</td></tr>`+
+    `</tbody></table><div class="muted" style="margin-top:8px">${esc(pc.note||'')}</div>`;
+}
+function drawAdvisorCurve(d){
+  const box=document.getElementById('plus-chart');
+  if(!box)return;
+  if(typeof echarts==='undefined'){box.innerHTML='<div class="muted">曲线库加载失败</div>';return}
+  const track=d.advisor_track||{}, curve=track.curve||{};
+  const dates=curve.dates||[], nav=curve.nav||[];
+  const rolling=d.rolling_10d_curve||{}, rDates=rolling.dates||[], rNav=rolling.nav||[];
+  if((!dates.length||!nav.length)&&(!rDates.length||!rNav.length)){
+    if(plusChart){plusChart.dispose();plusChart=null}
+    box.innerHTML='<div class="muted">暂无曲线数据</div>';
+    return;
+  }
+  function bounds(ds){return ds&&ds.length?[ds[0],ds[ds.length-1]]:[null,null]}
+  const [a0,a1]=bounds(dates), [r0,r1]=bounds(rDates);
+  const commonStart=(a0&&r0)?(a0>r0?a0:r0):(a0||r0);
+  const commonEnd=(a1&&r1)?(a1<r1?a1:r1):(a1||r1);
+  const axis=Array.from(new Set([commonStart, commonEnd, ...(dates||[]), ...(rDates||[])]))
+    .filter(dt=>(!commonStart||dt>=commonStart)&&(!commonEnd||dt<=commonEnd))
+    .sort();
+  function forwardAlignRebase(ds,vs){
+    const pairs=(ds||[]).map((dt,i)=>[dt,Number(vs[i])]).filter(x=>x[0]&&Number.isFinite(x[1])).sort((a,b)=>a[0].localeCompare(b[0]));
+    let startValue=null;
+    for(const [dt,val] of pairs){
+      if(!commonStart||dt<=commonStart) startValue=val;
+      if(commonStart&&dt>commonStart) break;
+    }
+    if(startValue==null){
+      const first=pairs.find(([dt])=>(!commonStart||dt>=commonStart)&&(!commonEnd||dt<=commonEnd));
+      startValue=first?first[1]:null;
+    }
+    let p=0, last=startValue, base=startValue||1;
+    return axis.map(dt=>{
+      while(p<pairs.length&&pairs[p][0]<=dt){
+        last=pairs[p][1];
+        p++;
+      }
+      if(last==null)return null;
+      return base?Number((last/base).toFixed(4)):null;
+    });
+  }
+  const series=[];
+  const legend=[];
+  const alignedAdvisor=(dates.length&&nav.length)?forwardAlignRebase(dates,nav):[];
+  const alignedRolling=(rDates.length&&rNav.length)?forwardAlignRebase(rDates,rNav):[];
+  if(dates.length&&nav.length){
+    legend.push('顾问Pro净超额');
+    series.push({name:'顾问Pro净超额',type:'line',data:alignedAdvisor,connectNulls:true,showSymbol:false,smooth:true,lineStyle:{width:2.2,color:'#a855f7'},areaStyle:{color:'rgba(168,85,247,0.08)'}});
+  }
+  if(rDates.length&&rNav.length){
+    legend.push('滚动业绩组合净值');
+    series.push({name:'滚动业绩组合净值',type:'line',data:alignedRolling,connectNulls:true,showSymbol:false,smooth:true,lineStyle:{width:2.2,color:'#22c55e'},areaStyle:{color:'rgba(34,197,94,0.06)'}});
+  }
+  if(alignedAdvisor.length&&alignedRolling.length){
+    const combo=axis.map((_,i)=>{
+      const a=alignedAdvisor[i], r=alignedRolling[i];
+      if(a==null||r==null)return null;
+      return Number((0.8*a+0.2*r).toFixed(4));
+    });
+    legend.push('顾问Pro+增强');
+    series.push({name:'顾问Pro+增强',type:'line',data:combo,connectNulls:true,showSymbol:false,smooth:true,lineStyle:{width:2.6,color:'#38bdf8'},areaStyle:{color:'rgba(56,189,248,0.05)'}});
+  }
+  if(!plusChart){
+    box.replaceChildren();
+    plusChart=echarts.init(box);
+  }
+  if(!plusResizeBound){
+    window.addEventListener('resize',()=>plusChart&&plusChart.resize());
+    plusResizeBound=true;
+  }
+  const palette=['#a855f7','#22c55e','#38bdf8'];
+  plusChart.setOption({animation:false,
+    color:palette,
+    title:{text:`顾问Pro vs 滚动业绩增强腿(共同区间重基准=1.0，增强80/20)`,left:'center',textStyle:{color:'#cbd5e1',fontSize:13}},
+    tooltip:{trigger:'axis',valueFormatter:v=>v==null?'-':(+v).toFixed(3)},
+    legend:{top:24,textStyle:{color:'#94a3b8'},data:legend,itemWidth:18,itemHeight:10},
+    grid:{left:60,right:28,top:58,bottom:60},
+    xAxis:{type:'category',data:axis,boundaryGap:false,axisLabel:{color:'#94a3b8'}},
+    yAxis:{type:'value',scale:true,axisLabel:{color:'#94a3b8'},splitLine:{lineStyle:{color:'#1e293b'}}},
+    dataZoom:[{type:'inside'},{type:'slider',bottom:18}],
+    series:series
+  },true);
+  setTimeout(()=>plusChart&&plusChart.resize(),0);
+}
+function render(){
+  const s=DATA.summary||{};
+  document.getElementById('status').textContent=`更新 ${DATA.updated||''} · ${DATA.regime||''} · ${DATA.as_of||''}`;
+  renderKpis(s); renderTabs(); renderRows(); drawAdvisorCurve(DATA); renderPerfCompare(DATA); renderBacktest(DATA.backtest||{});
+  document.getElementById('method').textContent=DATA.method||'';
+}
+async function load(){
+  document.getElementById('status').textContent='加载中...';
+  try{
+    DATA=await (await fetch('/api/advisor-pro-plus/result')).json();
+    if(DATA.message){document.getElementById('status').textContent=DATA.message;return}
+    render();
+  }catch(e){document.getElementById('status').textContent='加载失败'}
+}
+load();
+</script>
+</body>
+</html>
+

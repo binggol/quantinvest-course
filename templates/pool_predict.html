@@ -1,0 +1,102 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{{ uname }}买入清单预测 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1100px;margin:0 auto;padding:14px}
+  .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .bar button{font-size:13px;padding:7px 16px;border-radius:7px;cursor:pointer;background:#1e3a5f;color:#e2e8f0;border:1px solid #2a4a6a}
+  .bar button:disabled{opacity:.5;cursor:not-allowed}
+  .st{color:#94a3b8;font-size:12.5px}
+  table{border-collapse:collapse;font-size:12px;width:100%}
+  th,td{border:1px solid #1e293b;padding:3px 6px;text-align:center;white-space:nowrap}
+  thead th{background:#0f172a;color:#cbd5e1;position:sticky;top:0}
+  .mcol{font-size:10px;color:#64748b}
+  .hit{background:#14532d;color:#86efac;font-weight:600}
+  .consensus{background:#166534;color:#bbf7d0}
+  .scode{text-align:left;color:#7dd3fc;font-family:monospace}
+  .sname{text-align:left;color:#cbd5e1}
+  .cnt{color:#fbbf24;font-weight:700}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .tablewrap{overflow:auto;max-height:75vh}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>专做 <b>{{ uname }}({{ universe }})</b> 的次日买入清单。<b>🚀一键全跑</b>: 所有模型按各自在 {{ uname }} 上的 <a href="/universe-arena">回测 IR</a> 从高到低顺序训练+预测, 把每个模型的 Top-N 买入清单并排。<b>多个模型同时选中的票=绿色(共识更稳)</b>, 列首数字=被几个模型选中。IR 高的模型(2025-07~2026-06 同期回测: {{ uname }} 上 {% if universe=='csi1000' %}<b>TimesNet</b>(IR 2.36){% else %}<b>LGB</b>(IR 0.90){% endif %} 最高)放在左边优先看。<b>⚡只跑选中模型</b>: 不想等全跑1小时, 选一个模型(如IR最高的那个)单跑, 几分~十几分出清单, 省时间。<b>仅供研究, 全跑含深度模型约1小时。</b></div></details>
+  <div class="wrap">
+    <div class="bar">
+      <button id="runall">🚀 一键全跑 ({{ uname }} 所有模型按IR降序)</button>
+      <span style="color:#475569">|</span>
+      <select id="onemodel" style="background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 9px;font-size:13px">
+        <option value="lgb">lgb</option><option value="xgb">xgb</option><option value="catboost">catboost</option>
+        <option value="ols">ols</option><option value="ridge">ridge</option><option value="lasso">lasso</option>
+        <option value="dlinear">dlinear</option><option value="timesnet">timesnet</option>
+        <option value="patchtst">patchtst</option><option value="itransformer">itransformer</option>
+      </select>
+      <button id="runone" style="background:#166534;color:#fff;border-color:#166534">⚡ 只跑选中模型(省时间)</button>
+      <label class="st">Top<input id="topn" type="number" min="5" max="80" value="30" style="width:50px"/>只</label>
+      <span id="st" class="st"></span>
+    </div>
+    <div id="out" class="st" style="padding:10px">加载中…</div>
+  </div>
+<script src="/static/unlock.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const UNIV="{{ universe }}", UNAME="{{ uname }}";
+let POLL=null;
+function unlockCell(u){
+  return formatUnlockInfo(u);
+}
+function render(d){
+  const M=d.models||[]; const status=d.status||{}; const pending=d.pending||status.state==="running";
+  const tp=d.train_progress||{};
+  let live=status.msg||"PC处理中…";
+  if(pending && tp.phase){ const ep=(tp.epoch!=null)?(" Epoch "+tp.epoch+(tp.n_epochs?("/"+tp.n_epochs):"")):""; live+=` 〔${tp.model||''} ${tp.phase}${ep}〕`; }
+  $("st").textContent = pending ? ("⏳ "+live) : (M.length? (M.length+" 个模型 · "+(M[0].as_of||"")) : "");
+  $("runall").disabled = pending; $("runone").disabled = pending;
+  if(pending && !POLL) POLL=setInterval(load,8000);
+  if(!pending && POLL){ clearInterval(POLL); POLL=null; }
+  if(!M.length){ $("out").innerHTML='<div style="padding:10px">还没有 '+UNAME+' 的买入清单。点「🚀一键全跑」让所有模型按IR降序各跑一遍。'+(pending?' (正在跑…)':'')+'</div>'; return; }
+  const topn=Math.max(5,Math.min(80,parseInt($("topn").value)||30));
+  // 每模型取top-N, 统计每只票被几个模型选中
+  const perM=M.map(m=>({model:m.model, ir:m.ir, set:new Set((m.hits||[]).slice(0,topn).map(h=>h.code)),
+                        rank:Object.fromEntries((m.hits||[]).slice(0,topn).map(h=>[h.code,h.rank])),
+                        name:Object.fromEntries((m.hits||[]).map(h=>[h.code,h.name||""])),
+                        unlock:Object.fromEntries((m.hits||[]).map(h=>[h.code,h.unlock_info||null]))}));
+  const cnt={}, nm={};
+  perM.forEach(pm=>pm.set.forEach(c=>{cnt[c]=(cnt[c]||0)+1; if(pm.name[c])nm[c]=pm.name[c];}));
+  const stocks=Object.keys(cnt).sort((a,b)=> cnt[b]-cnt[a] || a.localeCompare(b));
+  let h='<div class="tablewrap"><table><thead><tr><th>#选中</th><th>代码</th><th>简称</th><th>解禁/协转</th>'
+    +perM.map(pm=>`<th>${pm.model}<br><span class="mcol">IR ${pm.ir==null?'-':pm.ir.toFixed(2)}</span></th>`).join('')+'</tr></thead><tbody>';
+  h+=stocks.map(c=>{
+    const k=cnt[c]; const u=perM.map(pm=>pm.unlock[c]).find(Boolean)||null;
+    return `<tr><td class="cnt">${k}</td><td class="scode">${c}</td><td class="sname">${nm[c]||''}</td><td>${unlockCell(u)}</td>`
+      +perM.map(pm=>{ if(!pm.set.has(c)) return '<td>·</td>';
+        const cls=k>=3?'consensus':(k>=2?'hit':'hit'); return `<td class="${cls}" title="排名${pm.rank[c]}">${pm.rank[c]}</td>`;}).join('')+'</tr>';
+  }).join('');
+  h+='</tbody></table></div>';
+  h+='<div class="note">列=模型(按 '+UNAME+' 回测IR降序, 左边IR最高)。格=该票在该模型买入清单里的排名。<b>绿色=多模型共识</b>(深绿≥3个模型, 越多越稳); 单绿=单模型独选(更投机)。「#选中」=被几个模型同时选进Top'+topn+'。共识票通常更可靠。<b>仅研究, 下单前自查停牌/涨停。</b></div>';
+  $("out").innerHTML=h;
+}
+async function load(){ try{ const d=await (await fetch("/api/pool_predict?u="+UNIV)).json(); render(d); return d; }catch(e){ return null; } }
+async function runPool(model, msg){
+  if(!confirm(msg)) return;
+  $("runall").disabled=true; $("runone").disabled=true; $("st").textContent="提交中…";
+  try{ const body=model?{universe:UNIV,model}:{universe:UNIV};
+    const j=await (await fetch("/api/pool_predict/runall",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
+    $("st").textContent=j.message||""; setTimeout(load,1500);
+  }catch(e){ $("st").textContent="失败: "+e.message; $("runall").disabled=false; $("runone").disabled=false; }
+}
+$("runall").addEventListener("click", ()=>runPool(null,
+  `确定让 ${UNAME} 所有模型按IR降序各跑一遍次日买入清单？\n含深度模型, 约1小时, 需PC在跑。`));
+$("runone").addEventListener("click", ()=>{ const m=$("onemodel").value;
+  runPool(m, `确定只跑 ${m} 一个模型出 ${UNAME} 次日清单？\n约几分~十几分(深度模型稍久), 比全跑快很多, 需PC在跑。`); });
+$("topn").addEventListener("change", load);
+load();
+</script>
+</body>
+</html>

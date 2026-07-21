@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>行业数据 · QuantInvest</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}">
+</head>
+<body class="member-shell">
+  <header class="member-head"><div class="brand-row"><h1>QuantInvest 数据服务</h1></div>{% include "_nav.html" %}</header>
+  <main class="member-main">
+    <div class="page-title"><h2>行业基本面数据</h2><div id="industry-summary" class="muted">正在加载</div></div>
+    <div class="market-toolbar">
+      <label>排序字段
+        <select id="industry-sort"><option value="industry">行业</option><option value="dt_yoy">扣非净利润同比</option><option value="or_yoy">营业收入同比</option><option value="spread">增速差</option><option value="n">样本数</option></select>
+      </label>
+      <label>方向
+        <select id="industry-direction"><option value="desc">降序</option><option value="asc">升序</option></select>
+      </label>
+    </div>
+    <section class="member-table-wrap" aria-label="行业基本面统计">
+      <table class="member-data-table">
+        <thead><tr><th>行业</th><th class="number">样本数</th><th class="number">扣非净利润同比</th><th class="number">营业收入同比</th><th class="number">增速差</th><th class="number">扣非快于营收占比</th><th class="number">扣非为正占比</th></tr></thead>
+        <tbody id="industry-rows"></tbody>
+      </table>
+      <div id="industry-empty" class="table-empty" hidden>暂无行业数据</div>
+    </section>
+  </main>
+<script>
+(() => {
+  "use strict";
+  const body = document.getElementById("industry-rows");
+  const empty = document.getElementById("industry-empty");
+  const summary = document.getElementById("industry-summary");
+  const sort = document.getElementById("industry-sort");
+  const direction = document.getElementById("industry-direction");
+  let rows = [];
+  const numeric = value => {
+    if (value === null || value === undefined || value === "") return "-";
+    const number = Number(value);
+    return Number.isFinite(number) ? `${number.toFixed(2)}%` : "-";
+  };
+  const sortableNumber = value => {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+
+  function render() {
+    const key = sort.value;
+    const sign = direction.value === "asc" ? 1 : -1;
+    const ordered = [...rows].sort((left, right) => {
+      if (key === "industry") return String(left.industry || "").localeCompare(String(right.industry || ""), "zh-CN") * sign;
+      const a = sortableNumber(left[key]); const b = sortableNumber(right[key]);
+      if (a === null && b === null) return 0;
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return (a - b) * sign;
+    });
+    const fragment = document.createDocumentFragment();
+    ordered.forEach(row => {
+      const tr = document.createElement("tr");
+      const values = [row.industry || "-", row.n ?? "-", numeric(row.dt_yoy), numeric(row.or_yoy), numeric(row.spread), numeric(row.pct_dt_gt_or), numeric(row.pct_dt_pos)];
+      values.forEach((value, index) => { const td = document.createElement("td"); td.textContent = value; if (index) td.className = "number"; tr.appendChild(td); });
+      fragment.appendChild(tr);
+    });
+    body.replaceChildren(fragment);
+    empty.hidden = ordered.length > 0;
+  }
+
+  sort.addEventListener("change", render);
+  direction.addEventListener("change", render);
+  fetch("/api/industry").then(async response => {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+    rows = Array.isArray(data.rows) ? data.rows.filter(row => row && typeof row === "object") : [];
+    summary.textContent = rows.length
+      ? `报告期 ${data.period || "-"} · ${rows.length} 个行业 · 更新 ${data.updated || "-"}`
+      : (data.message || "暂无行业数据");
+    render();
+  }).catch(error => {
+    rows = [];
+    body.replaceChildren();
+    empty.hidden = false;
+    empty.textContent = "行业数据加载失败，请稍后重试";
+    summary.textContent = `加载失败：${error.message}`;
+  });
+})();
+</script>
+</body>
+</html>

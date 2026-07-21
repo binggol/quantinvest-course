@@ -1,0 +1,303 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>quantinvest · 回测对比</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<style>
+.bt-layout { display:flex; gap:12px; padding:10px; }
+.bt-side { width:340px; flex:none; }
+.bt-main { flex:1; min-width:0; }
+#bt-chart { width:100%; height:560px; }
+.bt-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+.bt-bar button, .bt-bar select { font-size:12px; }
+.bt-table-scroll { width:100%; overflow-x:auto; }
+table.bt { width:100%; border-collapse:collapse; font-size:12px; }
+table.bt th, table.bt td { padding:5px 6px; border-bottom:1px solid #1e293b; text-align:right; }
+table.bt th { color:#94a3b8; background:#0f172a; position:sticky; top:0; }
+table.bt td.l, table.bt th.l { text-align:left; }
+table.bt tr:hover td { background:#0b1220; }
+@keyframes btblink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.up { color:#ef4444; } .down { color:#22c55e; }
+.swatch { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+.bt-empty { color:#64748b; padding:24px; }
+.bt-error { display:none; margin:8px 0; padding:9px 11px; border-left:3px solid #ef4444; background:#2b151b; color:#fecaca; font-size:12px; }
+.bt-error button { margin-left:8px; }
+.chart-unavailable { display:grid; place-items:center; height:100%; min-height:320px; padding:24px; color:#fbbf24; text-align:center; }
+@media(max-width:720px){
+  #bt-chart { height:420px!important; min-height:360px!important; }
+  .bt-bar { align-items:stretch; gap:8px; }
+  .bt-bar label { display:grid; gap:3px; flex:1 1 140px; }
+  .bt-bar select { width:100%; min-height:34px; }
+  table.bt { min-width:760px; }
+}
+</style>
+</head>
+<body>
+<header class="screen-header">
+  <h1>📉 quantinvest</h1>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>横向对比不同策略/因子的回测曲线:年化/夏普/最大回撤/超额。用来挑策略。</div></details>
+  <div class="meta">各因子批次/模型的回测净值曲线对比 · 直观看哪批因子好 · 由模型实验室(run_model)产出</div>
+  <div class="meta" style="color:#64748b;font-size:11px;">注:每条曲线的回测截止日 = 该批次<b>挖掘时的数据快照</b>,不随新数据自动延后;更新后应使用当前数据重新评估。</div>
+</header>
+
+<div style="margin:0;padding:0 10px;">
+  <div class="bt-bar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+    <label>显示:
+      <select id="mode">
+        <option value="excess_nv" selected>超额净值(vs基准)</option>
+        <option value="strat">策略净值</option>
+      </select>
+    </label>
+    <label>批次:
+      <select id="batchsel" title="只看某批次的所有模型; 全部=恢复默认(近期曲线)">
+        <option value="">全部</option>
+      </select>
+    </label>
+    <label>基准:
+      <select id="bench" title="仅策略净值模式下叠加; 取自最新指数数据">
+        <option value="sh000300" selected>沪深300</option>
+        <option value="sh000905">中证500</option>
+        <option value="sh000852">中证1000</option>
+        <option value="">不显示</option>
+      </select>
+    </label>
+    <button id="refresh">🔄 刷新</button>
+    <button id="all">全选</button><button id="none">清空</button>
+    <span id="stat" style="color:#94a3b8;"></span>
+  </div>
+  <div id="load-error" class="bt-error" role="alert">回测数据加载失败。<button id="retry" type="button">重新加载</button></div>
+  <div id="bt-chart" style="width:100%;height:calc(100vh - 132px);min-height:560px;"></div>
+  <div class="bt-table-scroll">
+    <table class="bt" style="width:100%;margin-top:14px;">
+      <thead><tr>
+        <th></th><th class="l">批次</th><th class="l">模型</th>
+        <th>年化超额</th><th>IR</th><th>最大回撤</th><th title="超额收益年化波动率">超额波动</th><th title="年化超额/|最大回撤|">Calmar</th><th title="超额为正的交易日占比">日胜率</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div id="empty" class="bt-empty" style="display:none;">
+    还没有回测曲线。可从 <a href="/rdagent" style="color:#7dd3fc;">RD-Agent 因子</a>、<a href="/mining">挖矿进展</a> 或 <a href="/fund-features">基本面特征</a> 页面生成模型回测。
+  </div>
+</div>
+
+<script>
+const chartElement = document.getElementById("bt-chart");
+const chart = window.echarts ? echarts.init(chartElement) : null;
+if (!chart) chartElement.innerHTML = '<div class="chart-unavailable">图表组件加载失败，回测指标表仍可正常查看。</div>';
+window.addEventListener("resize", () => { if (chart) chart.resize(); });
+// 跟踪鼠标当前悬停在哪条线上 -> tooltip 里该条加粗闪烁
+let HOVER = -1;
+if (chart) {
+  chart.on("mouseover", p => { if (p.componentType === "series" && p.seriesIndex != null) HOVER = p.seriesIndex; });
+  chart.on("mouseout", () => { HOVER = -1; });
+  chart.on("globalout", () => { HOVER = -1; });
+}
+const COLORS = ["#60a5fa","#f59e0b","#34d399","#f472b6","#a78bfa","#fb7185","#22d3ee","#facc15","#4ade80","#fca5a5","#93c5fd","#fdba74"];
+const $rows = document.getElementById("rows");
+const $empty = document.getElementById("empty");
+const $stat = document.getElementById("stat");
+const $mode = document.getElementById("mode");
+const $bench = document.getElementById("bench");
+const $batchsel = document.getElementById("batchsel");
+const $error = document.getElementById("load-error");
+const $refresh = document.getElementById("refresh");
+let INDEX_NAV = {};   // {sh000300:{name,dates,close}, ...} 最新指数, 供基准叠加
+// 按批次筛选: 选某批次=只勾它的所有模型; 全部=恢复默认(近期曲线)
+function applyBatch() {
+  const b = $batchsel.value;
+  curves.forEach(c => { c.on = b ? (c.batch === b) : c.recent; });
+  renderTable(); draw();
+}
+let curves = [];          // [{key, batch, model, dates, strat, bench, excess_nv, excess, ir, maxdd, color, on}]
+let updatedAt = "";
+
+async function fetchJson(url) {
+  const response = await fetch(url, {cache: "no-store"});
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const type = response.headers.get("content-type") || "";
+  if (!type.includes("json")) throw new Error("服务器返回了非 JSON 数据");
+  return response.json();
+}
+
+async function load() {
+  $stat.textContent = "加载中...";
+  $error.style.display = "none";
+  $refresh.disabled = true;
+  try {
+    try {
+      INDEX_NAV = (await fetchJson("/api/index_nav?start=2025-01-01")).indices || {};
+      $bench.disabled = false;
+    } catch (e) {
+      INDEX_NAV = {};
+      $bench.disabled = true;
+      $bench.title = "基准指数加载失败，策略净值模式暂不叠加基准";
+    }
+    const j = await fetchJson("/api/rdagent/model_curves");
+    const c = j.curves || {};
+    updatedAt = j.updated_at || "";
+    curves = Object.keys(c).map((key, i) => {
+      const v = c[key] || {};
+      const dts = Array.isArray(v.dates) ? v.dates : [];
+      // 默认只勾选近期同期曲线(末日期>=2024); 老测试期(2020-2023)曲线默认不勾, 避免图被拆成两段(可手动开)
+      const recent = dts.length > 0 && dts[dts.length - 1] >= "2024-01-01";
+      return { key, batch: String(v.batch || "未标记批次"), model: String(v.model || "未标记模型"), dates: dts,
+        strat: Array.isArray(v.strat) ? v.strat : [], bench: Array.isArray(v.bench) ? v.bench : [], excess_nv: Array.isArray(v.excess_nv) ? v.excess_nv : [],
+        excess: v.excess, ir: v.ir, maxdd: v.maxdd, updated_at: v.updated_at,
+        color: COLORS[i % COLORS.length], on: recent, recent: recent };
+    }).filter(c => c.dates.length > 0);
+    // 年化超额从高到低
+    curves.sort((a, b) => (b.excess ?? -99) - (a.excess ?? -99));
+    curves.forEach((c, i) => c.color = COLORS[i % COLORS.length]);
+    // 批次下拉: 全部 + 各批次(近期在前)
+    const batches = [...new Set(curves.map(c => c.batch))].sort((a, b) => {
+      const aTime = curves.filter(c => c.batch === a).reduce((v, c) => c.updated_at > v ? c.updated_at : v, "");
+      const bTime = curves.filter(c => c.batch === b).reduce((v, c) => c.updated_at > v ? c.updated_at : v, "");
+      return bTime.localeCompare(aTime) || b.localeCompare(a);
+    });
+    $batchsel.replaceChildren(new Option("全部", ""), ...batches.map(b => new Option(b, b)));
+    if (batches.length) {
+      $batchsel.value = batches[0];
+      curves.forEach(c => { c.on = c.batch === batches[0]; });
+    }
+    renderTable(); draw();
+    $stat.textContent = `${curves.length} 条 · ${updatedAt || "更新时间未知"}`;
+  } catch (e) {
+    $stat.textContent = "加载失败: " + e.message;
+    $error.style.display = "block";
+    if (!curves.length) {
+      $empty.style.display = "none";
+      $rows.replaceChildren();
+    }
+  } finally {
+    $refresh.disabled = false;
+  }
+}
+
+function pct(x) { return (x === undefined || x === null) ? "-" : `${(x*100>=0?"+":"")}${(x*100).toFixed(2)}%`; }
+// 从超额净值曲线算 年化波动 + 日胜率 (QuantStats 式补充); Calmar 用已有 ann/maxdd
+function qmetrics(c) {
+  const nv = c.excess_nv || [];
+  if (nv.length < 3) return { vol: null, win: null, calmar: null };
+  const r = [];
+  for (let i = 1; i < nv.length; i++) if (Number.isFinite(nv[i]) && Number.isFinite(nv[i-1]) && nv[i-1] !== 0) r.push(nv[i]/nv[i-1] - 1);
+  if (!r.length) return { vol: null, win: null, calmar: null };
+  const n = r.length, mean = r.reduce((a,b)=>a+b,0)/n;
+  const sd = Math.sqrt(r.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n);
+  const vol = sd * Math.sqrt(252);
+  const win = r.filter(x=>x>0).length / n;
+  const calmar = (Number.isFinite(c.excess) && Number.isFinite(c.maxdd) && c.maxdd !== 0) ? c.excess/Math.abs(c.maxdd) : null;
+  return { vol, win, calmar };
+}
+function html(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[ch]);
+}
+function renderTable() {
+  $empty.style.display = curves.length ? "none" : "block";
+  $rows.innerHTML = curves.map((c, i) => {
+    const q = qmetrics(c);
+    return `
+    <tr>
+      <td><input type="checkbox" data-i="${i}" ${c.on?"checked":""}/></td>
+      <td class="l"><span class="swatch" style="background:${c.color}"></span>${html(c.batch)}</td>
+      <td class="l">${html(c.model)}</td>
+      <td class="${(c.excess||0)>=0?"up":"down"}">${pct(c.excess)}</td>
+      <td>${c.ir==null?"-":c.ir}</td>
+      <td class="down">${pct(c.maxdd)}</td>
+      <td>${q.vol==null?"-":(q.vol*100).toFixed(1)+"%"}</td>
+      <td class="${(q.calmar||0)>=0?"up":"down"}">${q.calmar==null?"-":q.calmar.toFixed(2)}</td>
+      <td>${q.win==null?"-":(q.win*100).toFixed(0)+"%"}</td>
+    </tr>`;
+  }).join("");
+  $rows.querySelectorAll("input").forEach(cb => cb.addEventListener("change", () => {
+    curves[+cb.dataset.i].on = cb.checked; draw();
+  }));
+}
+
+function draw() {
+  if (!chart) return;
+  const mode = $mode.value;                 // excess_nv | strat
+  const sel = curves.filter(c => c.on);
+  // 日期并集
+  const dset = new Set();
+  sel.forEach(c => c.dates.forEach(d => dset.add(d)));
+  const dates = [...dset].sort();
+  const idx = new Map(dates.map((d, i) => [d, i]));
+
+  const series = [];
+  const legend = [];
+  sel.forEach(c => {
+    const vals = mode === "strat" ? c.strat : c.excess_nv;
+    const data = c.dates.map((d, i) => [d, vals[i]]);   // [日期,值]配对, 时间轴按真实日期定位(不同范围曲线不再硬接成两块)
+    const name = `${c.batch}/${c.model}`;
+    legend.push(name);
+    series.push({ name, type: "line", data, showSymbol: false, connectNulls: true,
+      lineStyle: { width: 1.6, color: c.color }, itemStyle: { color: c.color }, emphasis: { focus: "series" } });
+  });
+  // 策略净值模式: 叠加所选基准指数(取自最新指数数据, 归一化到图起点=1.0)
+  const benchCode = $bench.value;
+  if (mode === "strat" && sel.length && benchCode && INDEX_NAV[benchCode]) {
+    const ix = INDEX_NAV[benchCode];                          // {name, dates, close}
+    const startD = dates[0];                                  // 图上最早日期
+    const s0 = ix.dates.findIndex(d => d >= startD);
+    if (s0 >= 0 && ix.close[s0]) {
+      const base0 = ix.close[s0];
+      const data = ix.dates.slice(s0).map((d, k) => [d, ix.close[s0 + k] / base0]);
+      legend.push("基准 " + ix.name);
+      series.push({ name: "基准 " + ix.name, type: "line", data, showSymbol: false, connectNulls: true,
+        lineStyle: { width: 1.6, color: "#94a3b8", type: "dashed" }, itemStyle: { color: "#94a3b8" } });
+    }
+  }
+
+  chart.setOption({
+    animation: false,
+    title: { text: mode === "strat" ? "策略净值 vs 基准 (起点1.0)" : "超额净值 (相对基准, 起点1.0, 越高越好)",
+      left: "center", textStyle: { color: "#cbd5e1", fontSize: 13 } },
+    tooltip: { trigger: "axis", confine: true,
+      formatter: function (params) {
+        if (!params || !params.length) return "";
+        const ax = params[0].axisValueLabel || params[0].axisValue || "";
+        const rows = params.slice().sort((a, b) => {
+          const av = (a.value && a.value[1] != null) ? a.value[1] : -Infinity;
+          const bv = (b.value && b.value[1] != null) ? b.value[1] : -Infinity;
+          return bv - av;
+        });
+        let h = `<div style="margin-bottom:4px;color:#cbd5e1;font-size:11px">${ax}</div>`;
+        h += rows.map(p => {
+          const raw = (p.value && p.value[1] != null) ? p.value[1] : null;
+          const v = raw == null ? "-" : (+raw).toFixed(3);
+          const hot = p.seriesIndex === HOVER;
+          const st = hot
+            ? "font-weight:800;color:#fff;background:rgba(96,165,250,.28);padding:1px 5px;border-radius:3px;animation:btblink .7s ease-in-out infinite"
+            : "color:#cbd5e1";
+          return `<div style="${st}">${p.marker} ${p.seriesName}: <b>${v}</b></div>`;
+        }).join("");
+        return h;
+      } },
+    legend: { data: legend, top: 24, type: "scroll", textStyle: { color: "#cbd5e1", fontSize: 11 } },
+    grid: { left: 55, right: 24, top: 60, bottom: 60 },
+    xAxis: { type: "time", axisLabel: { color: "#94a3b8" } },
+    yAxis: { type: "value", scale: true, axisLabel: { color: "#94a3b8" }, splitLine: { lineStyle: { color: "#1e293b" } } },
+    dataZoom: [{ type: "inside" }, { type: "slider", bottom: 16 }],
+    series,
+  }, true);
+}
+
+$mode.addEventListener("change", draw);
+$bench.addEventListener("change", draw);
+$batchsel.addEventListener("change", applyBatch);
+$refresh.addEventListener("click", load);
+document.getElementById("retry").addEventListener("click", load);
+document.getElementById("all").addEventListener("click", () => { curves.forEach(c => c.on = true); renderTable(); draw(); });
+document.getElementById("none").addEventListener("click", () => { curves.forEach(c => c.on = false); renderTable(); draw(); });
+load();
+// 强制 echarts 撑满容器宽度(防初始化时宽度没吃满)
+window.addEventListener("load", () => { if (chart) chart.resize(); });
+setTimeout(() => { if (chart) chart.resize(); }, 150);
+</script>
+</body>
+</html>

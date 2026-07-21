@@ -1,0 +1,212 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>经典做T信号 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<style>
+  .wrap{max-width:1100px;margin:0 auto;padding:14px}
+  .hd{font-size:20px;font-weight:700;margin:6px 0 2px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  select,input{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:5px 8px;font-size:13px}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0;font-size:13px}
+  .kpi b{font-size:16px}
+  .pos{color:#34d399}.neg{color:#f87171}.dim{color:#94a3b8}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  th{background:#111827;color:#94a3b8}
+  tr.buy td{background:#0e2a1a}tr.sell td{background:#2a1414}
+  .tag{font-size:11px;padding:1px 8px;border-radius:10px}
+  .tbuy{background:#14532d;color:#86efac}.tsell{background:#3f1d1d;color:#fca5a5}.tno{background:#1e293b;color:#94a3b8}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.7;margin-top:10px}
+  .blink{animation:bk 1s steps(2) infinite}@keyframes bk{50%{opacity:.45}}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>把<b>持仓</b>的当日分时图叠上经典做T指标:<b>BIAS乖离</b>、<b>布林带</b>、<b>ATR动态轨道</b>、<b>ORB开盘区间突破</b>、<b>VWAP</b>。价格触下轨/严重负乖离→<span class="pos">低吸(回补)</span>;触上轨/严重正乖离→<span class="neg">高抛(减T)</span>。<b>🔍 搜索框</b>可输代码/首字母看<b>任意想买的票</b>的分时图+指标+<b>历史相似片段基率</b>(超卖后反弹概率, 作买入参考)。<b class="neg">A股T+1:当天买的当天卖不掉,持仓只能高抛低吸已持有的票。</b>仅辅助判断,自行决策。</div></details>
+  <div class="wrap">
+    <div class="bar">
+      <span style="position:relative;display:inline-block">🔍 <input id="srch" placeholder="搜想买的票: 代码/首字母/名称 如gzmt" style="width:220px" autocomplete="off" oninput="srchSuggest()" onkeydown="srchKey(event)"/>
+        <div id="acbox" style="display:none;position:absolute;left:18px;top:30px;z-index:50;width:300px;max-height:280px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.5)"></div></span>
+      <button onclick="doSearch()" style="background:#2563eb;color:#fff;border:none;border-radius:6px;padding:5px 12px;cursor:pointer">看图+基率</button>
+      持仓 <select id="sel"></select>
+      周期 <select id="freq"><option value="5min">5分钟</option><option value="1min">1分钟</option><option value="15min">15分钟</option></select>
+      <button id="refresh" style="background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:5px 12px;cursor:pointer">🔄 刷新</button>
+      <span id="ts" class="dim" style="font-size:12px"></span>
+      <label class="dim" style="font-size:12px;margin-left:6px"><input type="checkbox" id="auto" checked style="vertical-align:middle"> 盘中自动刷新(12s)</label>
+    </div>
+    <div id="kpi" class="kpi"></div>
+    <div id="fant" style="margin:6px 0"></div>
+    <div id="chart" style="width:100%;height:420px;background:#0b1220;border:1px solid #1e293b;border-radius:10px"></div>
+    <div id="analog"></div>
+    <div class="hd" style="margin-top:18px">🖥️ 持仓做T监控看板 <span id="bsig" class="dim" style="font-size:12px;font-weight:400"></span></div>
+    <div class="dim" style="font-size:11.5px">触发低吸/高抛的票自动置顶并标色。点行切换上方图表。盘中每30秒刷新。</div>
+    <div id="board" class="dim" style="padding:6px">加载中…</div>
+    <div class="note">⚠️ 经典指标是<b>辅助盯盘/做T工具</b>,非alpha信号(分钟级超额经回测多被成本washout)。<b>A股T+1</b>:仅对已有持仓高抛低吸。数据:分钟K线 tushare stk_mins + <b>实时价 realtime_quote(免费·盘中真live)</b>,看板批量拉所有持仓实时价,盘中12秒刷新。</div>
+  </div>
+<script>
+const $=id=>document.getElementById(id);
+let CHART=echarts.init($("chart"),null,{renderer:"canvas"}); CHART.setOption({backgroundColor:"transparent"});
+let POLL=null, CUR="", POSMAP={}, STOPLINES=[];
+async function loadStopLines(code){
+  STOPLINES=[];
+  const p=POSMAP[code]; if(!p||!p.buy) return;   // 需买入日才画
+  try{
+    const d=await (await fetch(`/api/eventstop?code=${encodeURIComponent(code)}&event_date=${encodeURIComponent(p.buy)}&buy_price=${encodeURIComponent(p.cost||'')}`)).json();
+    if(d.ok){ STOPLINES=[
+      {yAxis:d.buy,lineStyle:{color:"#3b82f6",width:2.5},label:{formatter:"🔵买入价(成本) "+d.buy,color:"#93c5fd",fontSize:10,position:"insideEndTop"}},
+      {yAxis:d.pct_stop,lineStyle:{color:"#ef4444",width:2.5},label:{formatter:"🔴主止损-10% "+d.pct_stop,color:"#fca5a5",fontSize:10}},
+      {yAxis:d.ev_low,lineStyle:{color:"#f59e0b",width:2},label:{formatter:"🟠买入日最低价(警示线) "+d.ev_low,color:"#fbbf24",fontSize:10}}]; }
+  }catch(e){}
+}
+function inTrade(){const d=new Date(),w=d.getDay();if(w===0||w===6)return false;const t=d.getHours()*60+d.getMinutes();return (t>=565&&t<=690)||(t>=778&&t<=901);}
+function fmtPct(v){return v==null?"—":`<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${v}%</span>`;}
+// 反T降成本 / 趋势下跌警告: 先看regime, 趋势下跌则反T失效、警告别低吸
+function renderFanT(d){
+  const el=$("fant"), p=POSMAP[CUR], c=d.cur;
+  if(c.regime==="趋势下跌"){
+    el.innerHTML=`<div class="note" style="border-color:#7f1d1d;background:#1c0d0d"><b class="neg">📉 趋势下跌中 — 反T失效, 别低吸接飞刀!</b><br>现在每破一次下轨都可能<b>继续跌</b>(均值回归指标在趋势里会害你)。<b class="neg">不要补仓"降成本"</b>(越补越套)。想减亏只能:① 反弹到 <b>VWAP ${(c.vwap||0).toFixed(2)}</b> 附近就减仓(下跌中反弹弱,卖点要近,别等布林上轨)② 真扛不住=止损/换股。<b>先看下方"历史基率"再决定耐心等还是走。</b></div>`;
+    return;
+  }
+  if(c.regime==="趋势上涨"){
+    el.innerHTML=`<div class="note" style="border-color:#14532d;background:#0e1a12"><b class="pos">📈 趋势上涨中</b> — 别急着反T卖飞了,趋势里"拿住"通常比来回做T强。要做也是小仓位高抛、留底仓。</div>`;
+    return;
+  }
+  if(!p || !p.cost){ el.innerHTML='<div class="dim" style="font-size:12px;padding:4px">震荡中。录入该股成本价后可算单手反T降成本。</div>'; return; }
+  const U=d.boll_up[d.boll_up.length-1], D=d.boll_dn[d.boll_dn.length-1], P=c.price, C=+p.cost;
+  const cap=Math.max(0,U-D), lots=p.qty?Math.round(p.qty/100):'?';
+  const near = P>=U*0.998?'<b class="neg">⚡已到高抛区 → 可卖出这手</b>':(P<=D*1.002?'<b class="pos">⚡已到低吸区 → 可买回</b>':'<span class="dim">区间内, 等触轨</span>');
+  el.innerHTML=`<div class="note" style="border-color:#5a5a1a;background:#1a1a0e">💡 <b>单手反T降成本</b>(震荡·持 ${lots} 手 @成本 <b>${C}</b>, 现价 ${P}):
+    <span class="neg">高抛≈布林上轨 ${U.toFixed(2)}</span> 卖出 → <span class="pos">低吸≈布林下轨 ${D.toFixed(2)}</span> 买回,
+    <b>每轮降成本约 ${cap.toFixed(2)} 元/股</b>(成本 ${C} → ${(C-cap).toFixed(2)})。 当前: ${near}
+    <br><span class="dim" style="font-size:11px">⚠️ 先卖后买(T+1允许卖老仓当天买回)。卖后不回落=丢筹码, <b>只在震荡日做</b>。</span></div>`;
+}
+async function loadAnalog(){
+  const code=$("sel").value; if(!code){ $("analog").innerHTML=''; return; }
+  try{const d=await (await fetch(`/api/intraday_classic/analog?code=${encodeURIComponent(code)}`)).json();
+    if(!d.ok){ $("analog").innerHTML=`<div class="dim" style="padding:6px">${d.message||'历史基率不可用'}</div>`; return; }
+    let h=`<div class="hd" style="margin-top:18px">📊 历史相似片段基率 <span class="dim" style="font-size:12px;font-weight:400">— ${d.name||d.code} 历史上"跌破20日布林下轨(超卖)" ${d.n_analog}次, 之后怎么走(经验概率·非预测)</span></div>`;
+    h+=`<div class="dim" style="font-size:12px;margin:2px 0 4px">当前: ${d.current_oversold?'<b class="neg">已超卖</b>':'未超卖'} · ${d.current_downtrend?'<b class="neg">下跌趋势中</b>':'非下跌趋势'} · 距20日高 ${d.cur_drawdown}%</div>`;
+    h+='<table><thead><tr><th>之后</th><th>反弹概率</th><th>中位收益</th><th>继续跌>3%</th><th>下跌趋势中·反弹</th><th>·中位</th></tr></thead><tbody>';
+    h+=d.horizons.map(x=>{const a=x.all,dn=x.down;
+      return `<tr><td>+${x.d}日</td><td>${a.pos_pct}%</td><td class="${a.med>=0?'pos':'neg'}">${a.med}%</td><td class="neg">${a.fall_pct}%</td><td>${dn?dn.pos_pct+'%':'-'}</td><td class="${dn&&dn.med>=0?'pos':'neg'}">${dn?dn.med+'%':'-'}</td></tr>`;}).join('');
+    h+='</tbody></table><div class="note">读法:"反弹概率"=超卖后该天数收正占比。<b>短期(5日)常≈50%甚至更低 → 别急着抄底/补仓</b>;20日尺度通常更高。<b>"下跌趋势中"列=和你现在处境最像的样本</b>。这是<b>历史基率不是预测</b>,帮你判断该耐心等还是止损。</div>';
+    $("analog").innerHTML=h;
+  }catch(e){ $("analog").innerHTML='<div class="dim" style="padding:6px">历史基率加载失败</div>'; }
+}
+
+// 用确定的ts_code+name 直接看图(点候选/回车选中候选时调)
+function pickSearched(tscode,name){
+  $("acbox").style.display='none'; $("srch").value=(name||'')+' '+tscode;
+  let o=$("sel").querySelector('option[data-search]');
+  if(!o){ o=document.createElement('option'); o.dataset.search='1'; $("sel").appendChild(o); }
+  o.value=tscode; o.textContent='🔍 '+(name||tscode)+'(搜索)'; $("sel").value=tscode;
+  loadChart(); loadAnalog();   // 搜索股非持仓→无成本/止损线, 但有分时图+指标+历史基率(买入参考)
+}
+let _acHits=[], _acIdx=-1, _acTimer=null;
+function srchSuggest(){
+  clearTimeout(_acTimer);
+  const q=$("srch").value.trim();
+  if(q.length<1){ $("acbox").style.display='none'; _acHits=[]; return; }
+  _acTimer=setTimeout(async()=>{
+    try{
+      const d=await (await fetch('/api/search?q='+encodeURIComponent(q))).json();
+      _acHits=(d.hits||[]).slice(0,10); _acIdx=-1;
+      if(!_acHits.length){ $("acbox").style.display='none'; return; }
+      $("acbox").innerHTML=_acHits.map((h,i)=>`<div data-i="${i}" onclick="pickSearched('${h.ts_code}','${(h.name||'').replace(/'/g,'')}')" style="padding:5px 9px;cursor:pointer;border:1px solid #1e293b;border-top:none;background:#0b1220;font-size:13px"><b>${h.name}</b> <span style="color:#64748b">${h.ts_code} ${h.industry||''}</span></div>`).join('');
+      $("acbox").style.display='block';
+    }catch(e){ $("acbox").style.display='none'; }
+  },180);
+}
+function srchKey(e){
+  if(e.key==='Enter'){
+    if(_acIdx>=0 && _acHits[_acIdx]){ pickSearched(_acHits[_acIdx].ts_code,_acHits[_acIdx].name); }
+    else if(_acHits.length){ pickSearched(_acHits[0].ts_code,_acHits[0].name); }   // 回车默认选第一个候选
+    else doSearch();
+    return;
+  }
+  if(!_acHits.length) return;
+  if(e.key==='ArrowDown'){ e.preventDefault(); _acIdx=Math.min(_acIdx+1,_acHits.length-1); hlAc(); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); _acIdx=Math.max(_acIdx-1,0); hlAc(); }
+  else if(e.key==='Escape'){ $("acbox").style.display='none'; }
+}
+function hlAc(){ [...$("acbox").children].forEach((el,i)=>el.style.background=i===_acIdx?'#1e3a5f':'#0b1220'); }
+function doSearch(){   // 兜底: 没选候选直接点按钮, 用原始串(后端_resolve_to_tscode解析)
+  const q=$("srch").value.trim(); if(!q) return;
+  if(_acHits.length){ pickSearched(_acHits[0].ts_code,_acHits[0].name); return; }
+  pickSearched(q,'');
+}
+document.addEventListener('click',e=>{ if(!e.target.closest('#srch')&&!e.target.closest('#acbox')) $("acbox").style.display='none'; });
+async function loadStocks(){
+  try{const d=await (await fetch("/api/positions")).json();
+    const ps=d.positions||[];
+    POSMAP={}; ps.forEach(p=>POSMAP[p.code]={cost:p.cost,qty:p.qty,buy:p.date||p.buy});
+    $("sel").innerHTML = ps.length? ps.map(p=>`<option value="${p.code}">${p.name||p.code} ${p.code}</option>`).join("") : '<option value="">(无持仓, 去卖出提醒录入)</option>';
+    if(ps.length){ CUR=ps[0].code; loadChart(); loadAnalog(); }
+  }catch(e){}
+}
+async function loadChart(){
+  const code=$("sel").value; if(!code) return; CUR=code;
+  await loadStopLines(code);   // 取该股 买入日最低/2ATR止损线, 叠到分时图
+  const d=await (await fetch(`/api/intraday_classic?code=${encodeURIComponent(code)}&freq=${$("freq").value}`)).json();
+  $("ts").textContent="更新 "+(d.ts||"");
+  if(!d.ok){ $("kpi").innerHTML=`<span class="dim">${d.message||"无数据"}</span>`; CHART.clear(); return; }
+  const c=d.cur;
+  const sigTag = c.signal==="低吸"?`<span class="tag tbuy">🟢 低吸</span>`:(c.signal==="高抛"?`<span class="tag tsell">🔴 高抛</span>`:`<span class="tag tno">观望</span>`);
+  const regTag = c.regime==="趋势下跌"?`<span class="tag tsell">📉 趋势下跌</span>`:(c.regime==="趋势上涨"?`<span class="tag tbuy">📈 趋势上涨</span>`:`<span class="tag tno">震荡</span>`);
+  const ob=c.ob_imb;
+  const obTag = ob==null?'':`<span title="买五档挂单量−卖五档挂单量 占比。描述当前盘口挂单压力, 非成交流、非方向预测(挂单可撤)。仅参考。">盘口挂单 <span style="color:${ob>0.1?'#86efac':(ob<-0.1?'#fca5a5':'#94a3b8')}">${ob>0?'+':''}${ob} ${ob>0.1?'挂买压':(ob<-0.1?'挂卖压':'均衡')}</span></span>`;
+  $("kpi").innerHTML=`<span><b>${d.name}</b> ${d.code}</span><span>现价 <b>${c.price}</b></span><span>涨跌 ${fmtPct(c.pct)}</span><span>${regTag}</span>`
+    +`<span>乖离 ${fmtPct(c.bias)}</span><span>vs VWAP ${fmtPct(c.vs_vwap)}</span>${obTag?'<span>'+obTag+'</span>':''}<span>当前信号 ${sigTag} <span class="dim">${c.why||''}</span></span>`;
+  renderFanT(d);
+  const buy=d.signals.filter(s=>s.type==="低吸").map(s=>[s.t,s.price]);
+  const sell=d.signals.filter(s=>s.type==="高抛").map(s=>[s.t,s.price]);
+  const L=(name,data,color,type)=>({name,type:"line",data,smooth:false,showSymbol:false,lineStyle:{width:type==="b"?2.2:1,color,type:type==="d"?"dashed":"solid"},z:type==="b"?5:2});
+  CHART.setOption({
+    backgroundColor:"transparent",
+    tooltip:{trigger:"axis"},
+    legend:{data:["收盘","MA","布林上","布林下","ATR上","ATR下","VWAP"],textStyle:{color:"#94a3b8",fontSize:11},top:0},
+    grid:{left:48,right:16,top:28,bottom:28},
+    xAxis:{type:"category",data:d.times,axisLabel:{color:"#94a3b8",fontSize:10},axisLine:{lineStyle:{color:"#334155"}}},
+    yAxis:{scale:true,axisLabel:{color:"#94a3b8",fontSize:10},splitLine:{lineStyle:{color:"#1e293b"}}},
+    series:[
+      L("收盘",d.close,"#e2e8f0","b"),
+      L("MA",d.ma,"#60a5fa","s"),
+      L("布林上",d.boll_up,"#a78bfa","d"),L("布林下",d.boll_dn,"#a78bfa","d"),
+      L("ATR上",d.atr_up,"#f59e0b","d"),L("ATR下",d.atr_dn,"#f59e0b","d"),
+      L("VWAP",d.vwap,"#34d399","s"),
+      {name:"低吸",type:"scatter",data:buy,symbol:"triangle",symbolSize:11,itemStyle:{color:"#22c55e"},z:9,
+        markLine:{silent:true,symbol:"none",lineStyle:{color:"#475569",type:"dotted"},
+          data:[{yAxis:d.orb_h,label:{formatter:"ORB上 "+d.orb_h,color:"#cbd5e1",fontSize:10}},{yAxis:d.orb_l,label:{formatter:"ORB下 "+d.orb_l,color:"#cbd5e1",fontSize:10}}].concat(STOPLINES)}},
+      {name:"高抛",type:"scatter",data:sell,symbol:"triangle",symbolRotate:180,symbolSize:11,itemStyle:{color:"#ef4444"},z:9},
+    ],
+  },true);
+}
+async function loadBoard(){
+  try{const d=await (await fetch(`/api/intraday_classic/board?freq=${$("freq").value}`)).json();
+    const rows=d.rows||[];
+    $("bsig").textContent = d.n_sig? `· ${d.n_sig} 只触发信号` : "· 暂无触发";
+    if(!rows.length){ $("board").innerHTML='<div class="dim" style="padding:8px">无持仓或暂无分时数据(盘前/非交易日)。</div>'; return; }
+    let h='<table><thead><tr><th>简称</th><th>代码</th><th>现价</th><th>涨跌</th><th>乖离</th><th>vs VWAP</th><th title="买5档挂单−卖5档挂单占比, 挂单压力(非预测)">盘口挂单</th><th>信号</th><th>触发原因</th></tr></thead><tbody>';
+    h+=rows.map(r=>{const cls=r.signal==="低吸"?"buy":(r.signal==="高抛"?"sell":"");
+      const tg=r.signal==="低吸"?'<span class="tag tbuy blink">🟢低吸</span>':(r.signal==="高抛"?'<span class="tag tsell blink">🔴高抛</span>':'<span class="tag tno">—</span>');
+      const ob=r.ob_imb; const obc=ob==null?'<span class="dim">-</span>':`<span style="color:${ob>0.1?'#86efac':(ob<-0.1?'#fca5a5':'#94a3b8')}">${ob>0?'+':''}${ob}</span>`;
+      return `<tr class="${cls}" style="cursor:pointer" onclick="pick('${r.code}')"><td>${r.name||''}</td><td class="dim">${r.code}</td><td><b>${r.price}</b></td><td>${fmtPct(r.pct)}</td><td>${fmtPct(r.bias)}</td><td>${fmtPct(r.vs_vwap)}</td><td>${obc}</td><td>${tg}</td><td class="dim" style="text-align:left;font-size:11px">${r.why||''}</td></tr>`;
+    }).join("");
+    $("board").innerHTML=h+"</tbody></table>";
+  }catch(e){}
+}
+function pick(code){ $("sel").value=code; loadChart(); loadAnalog(); window.scrollTo({top:0,behavior:"smooth"}); }
+$("sel").addEventListener("change",()=>{loadChart();loadAnalog();});
+$("freq").addEventListener("change",()=>{loadChart();loadBoard();});
+$("refresh").addEventListener("click",()=>{loadChart();loadBoard();});
+window.addEventListener("resize",()=>CHART.resize());
+function tick(){ if($("auto").checked && inTrade()){ loadChart(); loadBoard(); } }
+(async()=>{ await loadStocks(); loadBoard(); POLL=setInterval(tick,12000); })();
+</script>
+</body>
+</html>

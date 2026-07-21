@@ -1,0 +1,97 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>集成选股 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1080px;margin:0 auto;padding:16px}
+  .panel{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .mrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;font-size:13px}
+  .mrow label{display:flex;align-items:center;gap:6px;cursor:pointer}
+  .ir{color:#34d399;font-size:12px}.irn{color:#f87171;font-size:12px}
+  .schemes{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0;font-size:13px;color:#cbd5e1}
+  input[type=range]{width:120px;vertical-align:middle}
+  #run{background:#166534;border:none;color:#fff;padding:7px 18px;border-radius:8px;cursor:pointer;font-size:14px}
+  #run:disabled{opacity:.5}
+  #st{color:#94a3b8;font-size:13px;margin-left:8px}
+  table{border-collapse:collapse;width:100%;font-size:12px;margin-top:8px}
+  th,td{border:1px solid #1e293b;padding:4px 7px;text-align:right}
+  th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){text-align:left}
+  th{background:#111827;color:#94a3b8}
+  td a{color:#60a5fa;text-decoration:none}
+  .hi{background:#0c1f1a;color:#5eead4}
+  .lo{color:#64748b}
+  .wbadge{display:inline-block;background:#15233b;border:1px solid #1e3a5f;border-radius:8px;padding:1px 7px;margin:2px;font-size:11px;color:#cbd5e1}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>把多个模型在全 Alpha158 上对每只票的<b>排名百分位</b>按权重合并, 重排出一个"精选单"。<b>等权</b>=每模型平等; <b>IR加权</b>=擂台表现越好权重越高; <b>手动</b>=自己拖滑块。表里每个模型一列(该票在它眼中的排名百分位, 越绿越靠前), 一眼看哪些是多模型共识 vs 单模型独宠。只列出已在 <a href="/predict-a158">Alpha158预测页</a>跑过的模型。<b>仅供研究。</b></div></details>
+  <div class="wrap">
+    <div class="panel">
+      <div style="color:#94a3b8;font-size:12px;margin-bottom:4px">选模型(已有打分的):</div>
+      <div id="models" class="mrow"></div>
+      <div class="schemes">
+        权重:
+        <label><input type="radio" name="scheme" value="equal" checked> 等权</label>
+        <label><input type="radio" name="scheme" value="ir"> IR加权</label>
+        <label><input type="radio" name="scheme" value="manual"> 手动</label>
+        <span style="margin-left:10px">取前 <input type="number" id="topn" value="50" min="5" max="100" style="width:54px;background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;border-radius:6px;padding:3px 6px"> 只</span>
+        <button id="run">▶ 合并选股</button><span id="st"></span>
+      </div>
+      <div id="sliders" style="display:none"></div>
+    </div>
+    <div id="wused"></div>
+    <div id="out" class="lo" style="padding:10px">选模型 + 权重, 点「合并选股」。</div>
+  </div>
+<script src="/static/unlock.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let AVAIL=[];
+function irbadge(ir){ if(ir==null) return '<span class="lo">IR —</span>'; return `<span class="${ir>=0?'ir':'irn'}">IR ${ir.toFixed(2)}</span>`; }
+async function loadModels(){
+  let d; try{ d=await (await fetch("/api/ensemble/models")).json(); }catch(e){ return; }
+  AVAIL=d.models||[];
+  if(!AVAIL.length){ $("models").innerHTML='<span class="lo">还没有任何模型的 Alpha158 打分。先去 <a href="/predict-a158" style="color:#60a5fa">Alpha158预测页</a> 跑几个模型(xgb/catboost/dlinear...)。</span>'; return; }
+  $("models").innerHTML=AVAIL.map(m=>`<label><input type="checkbox" class="mck" value="${m.model}" checked> ${m.model} ${irbadge(m.ir)}</label>`).join("");
+  buildSliders();
+}
+function selModels(){ return [...document.querySelectorAll('.mck:checked')].map(c=>c.value); }
+function buildSliders(){
+  const sel=selModels();
+  $("sliders").innerHTML='<div style="color:#94a3b8;font-size:12px;margin:6px 0 2px">手动权重:</div>'+sel.map(m=>`<div class="mrow"><span style="width:90px">${m}</span><input type="range" class="wsl" data-m="${m}" min="0" max="100" value="50"><span class="wval" id="wv-${m}">50</span></div>`).join("");
+  $("sliders").querySelectorAll(".wsl").forEach(s=>s.oninput=()=>{$("wv-"+s.dataset.m).textContent=s.value;});
+}
+function curScheme(){ return document.querySelector('input[name=scheme]:checked').value; }
+document.querySelectorAll('input[name=scheme]').forEach(r=>r.onchange=()=>{ $("sliders").style.display = curScheme()==="manual"?"block":"none"; });
+document.addEventListener("change",e=>{ if(e.target.classList.contains("mck")) buildSliders(); });
+function cell(v){ // rank百分位 0-1 -> 颜色
+  if(v==null) return '<td class="lo">—</td>';
+  const pct=(v*100).toFixed(0); const g=v>=0.8?'hi':'';
+  return `<td class="${g}">${pct}</td>`;
+}
+async function run(){
+  const models=selModels(); if(!models.length){ $("st").textContent="选至少一个模型"; return; }
+  const scheme=curScheme(); const topn=parseInt($("topn").value)||50;
+  let weights={};
+  if(scheme==="manual"){ document.querySelectorAll(".wsl").forEach(s=>weights[s.dataset.m]=+s.value); }
+  $("run").disabled=true; $("st").textContent="计算中…";
+  let d; try{ d=await (await fetch("/api/ensemble",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({models,scheme,topn,weights})})).json(); }
+  catch(e){ $("st").textContent="失败"; $("run").disabled=false; return; }
+  $("run").disabled=false;
+  if(!d.ok){ $("st").textContent="⚠️ "+(d.message||"失败"); return; }
+  $("st").textContent="✅ "+d.n_models+"模型 · "+(d.as_of||"");
+  $("wused").innerHTML='<div style="margin:4px 0"><span style="color:#64748b;font-size:12px">权重('+d.scheme+'): </span>'+Object.entries(d.weights).map(([m,w])=>`<span class="wbadge">${m} ${(w*100).toFixed(0)}%</span>`).join("")+'</div>';
+  const ms=d.models;
+  let h='<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>行业</th><th>解禁/协转</th><th>集成分</th>'+ms.map(m=>`<th>${m}</th>`).join("")+'</tr></thead><tbody>';
+  h+=d.hits.map(x=>`<tr><td>${x.rank}</td><td><a href="/?code=${x.code}">${x.code}</a></td><td>${(x.name||'').replace(/</g,'&lt;')}</td><td>${x.industry||''}</td><td>${formatUnlockInfo(x)}</td><td><b>${(x.ens_score*100).toFixed(0)}</b></td>`+ms.map(m=>cell(x.per_model[m])).join("")+'</tr>').join("");
+  $("out").innerHTML=h+'</tbody></table><div class="note">数字=该票在各模型里的排名百分位(0-100, 越大越靠前, ≥80高亮)。多列都高=多模型共识; 只有一列高=单模型独宠(更投机)。</div>';
+}
+$("run").onclick=run;
+loadModels();
+</script>
+</body>
+</html>

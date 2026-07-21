@@ -1,0 +1,59 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>质量成长选股 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1150px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px;background:linear-gradient(90deg,#60a5fa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .sub{color:#94a3b8;line-height:1.7;font-size:13px;margin-bottom:12px;background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b}
+  .bar{margin:0 0 10px}.bar button{font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer}
+  input#flt{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:5px 10px;font-size:13px;margin-left:8px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid #1e293b;padding:6px 9px;text-align:right}
+  th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
+  th{color:#94a3b8;background:#0f172a;cursor:pointer;user-select:none;position:sticky;top:0}
+  th:hover{color:#e2e8f0}
+  tr:hover td{background:#13203a}
+  .pos{color:#f87171}.neg{color:#34d399}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div class="hd">💎 质量成长选股(第6腿池)</div>
+    <div class="bar"><button id="rfbtn" onclick="doRefresh('quality')">🔄 刷新数据</button> <span id="rfst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span>
+      <input id="flt" placeholder="筛行业/名称…" oninput="render()"/></div>
+    <div class="sub" id="sub">加载中…</div>
+    <div id="tbl"></div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script>
+let DATA=[], sortKey='or_yoy', sortDesc=true;
+const COLS=[['code','代码',0],['name','名称',0],['industry','行业',0],['dt_yoy','扣非增速%',1],['or_yoy','营收增速%',1],['spread','利润弹性',1],['roe','ROE%',1],['gpm','毛利率%',1],['circ_mv','流通市值(亿)',1]];
+function num(v){return v==null?'-':v;}
+function cls(v){return v==null?'':(v>=0?'pos':'neg');}
+function render(){
+  const q=(document.getElementById('flt').value||'').trim();
+  let rows=DATA.filter(r=>!q||(r.industry||'').includes(q)||(r.name||'').includes(q)||(r.code||'').includes(q));
+  rows.sort((a,b)=>{const x=a[sortKey],y=b[sortKey]; if(x==null)return 1; if(y==null)return -1; return typeof x==='string'?(sortDesc?y.localeCompare(x):x.localeCompare(y)):(sortDesc?y-x:x-y);});
+  let h='<table><thead><tr>'+COLS.map(c=>`<th onclick="setSort('${c[0]}')">${c[1]}${sortKey===c[0]?(sortDesc?' ▼':' ▲'):''}</th>`).join('')+'</tr></thead><tbody>';
+  h+=rows.slice(0,500).map(r=>`<tr><td>${r.code}</td><td>${r.name}</td><td>${r.industry||''}</td>`+
+     `<td class="${cls(r.dt_yoy)}">${num(r.dt_yoy)}</td><td class="${cls(r.or_yoy)}">${num(r.or_yoy)}</td>`+
+     `<td class="${cls(r.spread)}">${num(r.spread)}</td><td>${num(r.roe)}</td><td>${num(r.gpm)}</td><td>${num(r.circ_mv)}</td></tr>`).join('');
+  h+='</tbody></table>';
+  document.getElementById('tbl').innerHTML=h+(rows.length>500?`<div class="sub">仅显示前500/${rows.length}只,可用筛选或排序</div>`:'');
+}
+function setSort(k){if(sortKey===k)sortDesc=!sortDesc;else{sortKey=k;sortDesc=true;}render();}
+fetch('/api/quality').then(r=>r.json()).then(d=>{
+  DATA=d.rows||[];
+  document.getElementById('sub').innerHTML=`报告期 <b>${d.period||'-'}</b> · 入选 <b>${d.n||0}</b> 只 · 更新 ${d.updated||'-'}。筛选: ${d.criteria||''}。`+
+    `<b>该池等权对冲夏~1.5、与组合其它腿低/负相关(回购−0.57),已作第6腿(15%)。</b> 默认按营收增速排序(避开低基数反转); 扣非增速极高多为<b style="color:#fbbf24">低基数反转</b>(去年扣非≈0), 选股看综合。点表头排序、上方可筛行业。仅基本面参考。`;
+  if(!DATA.length){document.getElementById('tbl').innerHTML='<div class="sub">'+(d.message||'暂无数据')+'</div>';return;}
+  render();
+}).catch(e=>{document.getElementById('tbl').innerHTML='加载失败: '+e;});
+</script>
+</body>
+</html>

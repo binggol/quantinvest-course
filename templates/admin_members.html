@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>会员管理 · QuantInvest</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}">
+  <style>
+    body{margin:0;background:#08111f;color:#e5edf7;font:14px/1.5 system-ui,"Microsoft YaHei"}.wrap{max-width:1120px;margin:0 auto;padding:18px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.panel{background:#101c2e;border:1px solid #29445f;border-radius:8px;padding:14px;margin-top:14px}
+    h1{margin:0;font-size:24px}a{color:#67e8f9;text-decoration:none}.muted{color:#8fa4bd}.ok{background:#143522;color:#bbf7d0}.err{background:#3b1218;color:#fecaca}
+    .msg{padding:9px 10px;border-radius:6px;margin-top:10px}label{display:block;color:#cbd5e1;font-size:12px}input,select{box-sizing:border-box;width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid #334155;background:#0b1423;color:#e5edf7}
+    button{padding:8px 12px;border:1px solid #22d3ee;background:#0e7490;color:#ecfeff;border-radius:6px;cursor:pointer}.formgrid{display:grid;grid-template-columns:2fr 1.4fr 1fr 1fr 1.2fr 1.2fr auto;gap:10px;align-items:end}
+    table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}th,td{border-bottom:1px solid #29445f;padding:8px 6px;text-align:left}th{color:#8fa4bd;font-weight:600}.inline{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.inline input{width:76px}.inline select{width:auto;margin-top:0}.scroll{overflow:auto}.audit-action{font-family:ui-monospace,Consolas,monospace;color:#bae6fd}
+    @media(max-width:820px){.formgrid{grid-template-columns:1fr}.inline{display:block}.inline input{width:100%;margin-bottom:6px}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="top">
+      <div>
+        <h1>会员管理</h1>
+        <div class="muted">手动开通、续期、禁用 QuantInvest 会员。</div>
+      </div>
+      <div><a href="{{ url_for('admin_dashboard') }}">管理后台</a> · <a href="{{ url_for('logout') }}">退出</a></div>
+    </div>
+    {% include "_nav.html" %}
+    {% if message %}<div class="msg ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="msg err">{{ error }}</div>{% endif %}
+
+    <section class="panel">
+      <form method="post" class="formgrid">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="save">
+        <label>邮箱<input name="email" type="email" required></label>
+        <label>密码<input name="password" type="password" autocomplete="new-password" placeholder="新建必填，更新可留空"></label>
+        <label>角色<select name="role"><option value="member">会员</option><option value="operator">运营</option><option value="admin">管理员</option></select></label>
+        <label>套餐<select name="plan"><option value="basic">基础数据版</option><option value="data_pro">数据专业版</option><option value="enterprise">企业数据版</option></select></label>
+        <label>状态<select name="status"><option value="active">启用</option><option value="disabled">禁用</option></select></label>
+        <label>会员到期日<input name="membership_until" type="date" value="{{ today }}"></label>
+        <button type="submit">保存</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="scroll"><table>
+        <thead><tr><th>邮箱</th><th>角色</th><th>套餐</th><th>状态</th><th>到期日</th><th>最后登录</th><th>操作</th></tr></thead>
+        <tbody>
+        {% for m in members %}
+          <tr>
+            <td>{{ m.email }}</td>
+            <td>{{ {"admin":"管理员","operator":"运营","member":"会员"}.get(m.role, m.role) }}</td>
+            <td>{{ {"basic":"基础数据版","data_pro":"数据专业版","enterprise":"企业数据版"}.get(m.plan, m.plan) }}</td>
+            <td>{{ "启用" if m.status == "active" else "禁用" }}</td>
+            <td>{{ m.membership_until or "不限" }}</td>
+            <td>{{ m.last_login or "-" }}</td>
+            <td>
+              {% if m.role != "admin" %}
+              <form method="post" class="inline">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="extend">
+                <input type="hidden" name="email" value="{{ m.email }}">
+                <input name="days" type="number" min="1" value="30">
+                <button type="submit">续期</button>
+                <button name="days" value="7" type="submit">+7</button>
+                <button name="days" value="30" type="submit">+30</button>
+                <button name="days" value="90" type="submit">+90</button>
+                <button name="days" value="365" type="submit">+365</button>
+              </form>
+              <form method="post" class="inline" style="margin-top:6px">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="status">
+                <input type="hidden" name="email" value="{{ m.email }}">
+                <input type="hidden" name="status" value="{{ 'disabled' if m.status == 'active' else 'active' }}">
+                <button type="submit">{{ "禁用" if m.status == "active" else "启用" }}</button>
+              </form>
+              {% if m.role == "member" %}
+              <form method="post" class="inline" style="margin-top:6px">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="plan">
+                <input type="hidden" name="email" value="{{ m.email }}">
+                <select name="plan" aria-label="{{ m.email }} 套餐">
+                  <option value="basic"{% if m.plan == "basic" %} selected{% endif %}>基础数据版</option>
+                  <option value="data_pro"{% if m.plan == "data_pro" %} selected{% endif %}>数据专业版</option>
+                  <option value="enterprise"{% if m.plan == "enterprise" %} selected{% endif %}>企业数据版</option>
+                </select>
+                <button type="submit">变更套餐</button>
+              </form>
+              {% endif %}
+              {% else %}
+              <span class="muted">管理员</span>
+              {% endif %}
+              <form method="post" class="inline" style="margin-top:6px">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="revoke_sessions">
+                <input type="hidden" name="email" value="{{ m.email }}">
+                <button type="submit">撤销会话</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="panel">
+      <h2>最近管理记录</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>时间</th><th>操作</th><th>目标账号</th><th>操作者 ID</th><th>来源地址</th></tr></thead>
+        <tbody>
+        {% for record in audit_records %}
+          <tr><td>{{ record.created_at }}</td><td class="audit-action">{{ record.action }}</td><td>{{ record.target_email }}</td><td>{{ record.actor_member_id or "-" }}</td><td>{{ record.remote_addr or "-" }}</td></tr>
+        {% else %}
+          <tr><td colspan="5" class="muted">暂无管理记录</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,193 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>回购事件腿 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline_contract.js"></script>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .sub{color:#94a3b8;line-height:1.7;margin-bottom:14px;font-size:13px}
+  .upd{color:#64748b;font-size:12px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  th{background:#111827;color:#94a3b8;font-weight:600}
+  .buy h3{color:#34d399} .sell h3{color:#f87171}
+  .tag{font-size:11px;padding:1px 7px;border-radius:10px;background:#1e293b;color:#cbd5e1}
+  .empty{color:#94a3b8;padding:10px;font-size:13px}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;color:#cbd5e1;font-size:12.5px;line-height:1.7;margin-top:12px}
+  .warn{color:#fbbf24}
+  .lk{cursor:pointer;color:#7dd3fc}
+  #chart{width:100%;height:360px}
+  .mbtn{font-size:12px;padding:3px 11px;background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:6px;cursor:pointer;margin-right:6px}
+  .mbtn.on{background:#2563eb;color:#fff;border-color:#2563eb}
+  #fundbox{margin-top:8px}
+  #fundbox table{max-width:680px}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>【<span class="k">第四sleeve</span>】回购事件腿。中证1000成分股<b>发布回购公告后建仓、持有60交易日、指数对冲、等权</b>。慢漂移(CAR[+1,+60]+2.07%/t=11.4)、低换手、容量大。<b>与三腿近零相关</b>,配20%把组合夏普2.06→2.34。今日建仓照单买入,持满60交易日平仓。<b>点代码看今日分时/日K,今日建仓股可看近3年基本面。</b></div></details>
+  <div class="wrap">
+    <div style="margin:0 0 10px"><button id="rfbtn" onclick="doRefresh('repo')" style="font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">🔄 刷新数据</button> <span id="rfst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span></div>
+    <div id="resonance"></div><div id="resbt"></div>
+
+    <div class="card">
+      <div style="margin-bottom:8px">
+        <button class="mbtn on" id="m-all" onclick="setMode('all')">📊 今日分时·全部</button>
+        <button class="mbtn" id="m-intra" onclick="setMode('intra')">📈 日内·单股</button>
+        <button class="mbtn" id="m-day" onclick="setMode('day')">🕯️ 日K·单股</button>
+        <label style="color:#94a3b8;font-size:12px">复权 <select id="day-adjust" style="background:#111827;color:#cbd5e1;border:1px solid #334155;border-radius:6px;padding:3px 7px"><option value="qfq">前复权</option><option value="hfq">后复权</option><option value="none">不复权</option></select></label>
+        <span id="chart-cur" style="color:#94a3b8;font-size:12px;margin-left:8px"></span>
+      </div>
+      <div id="chart"></div>
+      <div class="upd" id="chart-hint">今日各回购股分时(距昨收%)叠加;点下方代码看单只 日内/日K。图例可单独开关。</div>
+      <div id="fundbox"></div>
+    </div>
+
+    <div id="content">加载中…</div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script>
+const chart=echarts.init(document.getElementById("chart"));
+window.addEventListener("resize",()=>chart.resize());
+// 容器宽度变化(init时未定好/布局回流)即重新适配, 修"图只占一半"
+try{ new ResizeObserver(()=>chart.resize()).observe(document.getElementById("chart")); }catch(e){}
+setTimeout(()=>chart.resize(),120); requestAnimationFrame(()=>chart.resize());
+let intraData=null, curCode=null, curName=null, mode="all", dayKRequestNo=0;
+fetch("/api/event_resonance").then(r=>r.json()).then(d=>{
+  const rows=d.items||[],box=document.getElementById("resonance");
+  if(!rows.length){box.innerHTML="";return}
+  let h=`<div class="card" style="border-color:#92400e"><h3 style="color:#fbbf24">🔥 同行业业绩×回购共振 (${d.n}组 · 重点${d.n_focus}组)</h3><div class="upd">独立事件交叉验证；评分只用于回购股优先级排序</div>`;
+  h+='<table><thead><tr><th>行业</th><th>业绩同行</th><th>业绩来源</th><th>回购候选</th><th>公告来源</th><th>事件间隔</th><th>评分</th></tr></thead><tbody>';
+  h+=rows.slice(0,30).map(x=>`<tr><td>${x.industry}</td><td>${x.earnings_name} <span style="color:#64748b">${x.earnings_code}</span></td><td>${x.earnings_source}${x.earnings_type?'·'+x.earnings_type:''}</td><td><span class="lk" onclick="pick('${x.repo_code}','${(x.repo_name||'').replace(/'/g,'')}')">${x.repo_name} ${x.repo_code}</span></td><td>${x.repo_url?`<a href="${x.repo_url}" target="_blank" style="color:#7dd3fc">巨潮公告↗</a>`:x.repo_source}</td><td>${x.event_gap_days==null?'-':x.event_gap_days+'天'}</td><td><b style="color:${x.score>=75?'#fbbf24':'#94a3b8'}">${x.score}·${x.level}</b></td></tr>`).join('');
+  box.innerHTML=h+`</tbody></table><div class="note">${d.note||''}</div></div>`;
+}).catch(()=>{});
+fetch("/api/event_resonance/backtest").then(r=>r.json()).then(d=>{
+  if(!d.comparison)return;const hs=[5,10,20,60],last=(d.by_year||[]).slice(-1)[0];
+  document.getElementById("resbt").innerHTML=`<div class="note"><b>📊 同行业+同年度匹配历史验证</b>（共振${d.n_resonance}笔）　${hs.map(h=>{const x=d.comparison[h];return `${h}日增量 <b style="color:${x.mean_lift>0?'#86efac':'#fca5a5'}">${x.mean_lift>0?'+':''}${x.mean_lift}%</b>`}).join('　')}<br><span style="color:#94a3b8">固定20日回看窗口；${last?`最近${last.year}年20日：共振${last.resonance.horizons[20].mean}% vs 普通${last.ordinary.horizons[20].mean}%`:""}。近期弱化时只作观察加分。</span></div>`;
+}).catch(()=>{});
+function qlib(c){c=String(c);if(/^(sh|sz|bj)/i.test(c))return c.toLowerCase();if(c.includes(".")){let[n,e]=c.split(".");return e.toLowerCase()+n;}return c;}
+function pc(x){return x==null?"-":`<span style="color:${x>=0?'#ef4444':'#22c55e'}">${x>=0?'+':''}${x}%</span>`;}
+function yi(x){return x==null?"-":(Math.abs(x)>=1e8?(x/1e8).toFixed(2)+"亿":(x/1e4).toFixed(0)+"万");}
+
+async function loadIntra(){
+  try{ intraData=await (await fetch("/api/repo/intraday")).json(); }catch(e){ intraData={series:[]}; }
+  if(mode==="all") drawAll();
+}
+function drawAll(){
+  const s=(intraData&&intraData.series)||[];
+  if(!s.length){ chart.clear(); chart.setOption({title:{text:"今日暂无分时(休市或无持仓)",left:"center",top:"40%",textStyle:{color:"#64748b",fontSize:13}}}); return; }
+  let xs=s[0].times; for(const x of s) if(x.times.length>xs.length) xs=x.times;
+  chart.setOption({animation:false,
+    title:{text:`今日分时·全部 (${s.length}只, 距昨收%)`,left:"center",textStyle:{color:"#cbd5e1",fontSize:13}},
+    tooltip:{trigger:"axis",valueFormatter:v=>v==null?"-":v+"%"},
+    legend:{type:"scroll",top:22,textStyle:{color:"#94a3b8",fontSize:10},data:s.map(x=>x.name)},
+    grid:{left:48,right:18,top:48,bottom:30},
+    xAxis:{type:"category",data:xs.map(t=>t.slice(-5)),axisLabel:{color:"#94a3b8",fontSize:10}},
+    yAxis:{type:"value",axisLabel:{color:"#94a3b8",formatter:"{value}%"},splitLine:{lineStyle:{color:"#1e293b"}}},
+    series:s.map(x=>({name:x.name,type:"line",showSymbol:false,smooth:false,data:x.pct,lineStyle:{width:1.3}}))
+  },true);
+  document.getElementById("chart-cur").textContent="";
+}
+function drawIntraOne(){
+  const s=((intraData&&intraData.series)||[]).find(x=>x.code===curCode);
+  if(!s){ chart.clear(); chart.setOption({title:{text:curName+" 今日无分时",left:"center",top:"40%",textStyle:{color:"#64748b"}}}); return; }
+  chart.setOption({animation:false,
+    title:{text:`${curName} 今日分时 (距昨收%, 现${s.cur_pct>=0?'+':''}${s.cur_pct}%)`,left:"center",textStyle:{color:"#cbd5e1",fontSize:13}},
+    tooltip:{trigger:"axis",valueFormatter:v=>v==null?"-":v+"%"},grid:{left:48,right:18,top:40,bottom:30},
+    xAxis:{type:"category",data:s.times.map(t=>t.slice(-5)),axisLabel:{color:"#94a3b8",fontSize:10}},
+    yAxis:{type:"value",axisLabel:{color:"#94a3b8",formatter:"{value}%"},splitLine:{lineStyle:{color:"#1e293b"}}},
+    series:[{type:"line",showSymbol:false,data:s.pct,areaStyle:{color:"rgba(96,165,250,0.1)"},lineStyle:{width:2,color:"#60a5fa"}}]
+  },true);
+}
+async function drawDayK(){
+  const ownRequest=++dayKRequestNo;
+  const adjust=document.getElementById("day-adjust").value;
+  let d,contract; try{
+    const response=await fetch(`/api/kline?code=${encodeURIComponent(qlib(curCode))}&days=120&adjust=${adjust}&refresh=0`);
+    d=await response.json().catch(()=>({}));
+    if(ownRequest!==dayKRequestNo)return;
+    if(!response.ok)throw new Error(d.error||`HTTP ${response.status}`);
+    contract=QIKline.assertPayload(d,adjust);
+  }catch(e){if(ownRequest!==dayKRequestNo)return;chart.clear();chart.setOption({title:{text:`${curName} 日K加载失败：${e.message}`,left:"center",top:"40%",textStyle:{color:"#fbbf24",fontSize:13}}});return;}
+  const k=d.dates.map((_,i)=>[d.open[i],d.close[i],d.low[i],d.high[i]]);
+  chart.setOption({animation:false,
+    title:{text:`${curName} 日K (${contract.adjustLabel}, 近${contract.count}日)${contract.qualityNotice ? ` · ${contract.qualityNotice}` : ""}`,left:"center",textStyle:{color:"#cbd5e1",fontSize:13}},
+    tooltip:{trigger:"axis"},grid:{left:52,right:18,top:40,bottom:50},
+    xAxis:{type:"category",data:d.dates,axisLabel:{color:"#94a3b8",fontSize:10}},
+    yAxis:{scale:true,axisLabel:{color:"#94a3b8"},splitLine:{lineStyle:{color:"#1e293b"}}},
+    dataZoom:[{type:"inside"},{type:"slider",bottom:14,height:16}],
+    series:[{type:"candlestick",data:k,itemStyle:{color:"#ef4444",color0:"#22c55e",borderColor:"#ef4444",borderColor0:"#22c55e"}}]
+  },true);
+}
+function setMode(m){
+  mode=m;
+  if(m!=="day")dayKRequestNo++;
+  document.getElementById("m-all").className="mbtn"+(m==="all"?" on":"");
+  document.getElementById("m-intra").className="mbtn"+(m==="intra"?" on":"");
+  document.getElementById("m-day").className="mbtn"+(m==="day"?" on":"");
+  if(m==="all"){ drawAll(); }
+  else if(!curCode){ document.getElementById("chart-cur").textContent="← 先点下方某只股票的代码"; }
+  else if(m==="intra"){ drawIntraOne(); }
+  else if(m==="day"){ drawDayK(); }
+}
+function pick(code,name){
+  curCode=code; curName=name||code;
+  document.getElementById("chart-cur").textContent="当前: "+curName+" "+code;
+  if(mode==="all") setMode("intra"); else setMode(mode);
+  document.getElementById("chart").scrollIntoView({behavior:"smooth",block:"center"});
+}
+document.getElementById("day-adjust").addEventListener("change",()=>{if(mode==="day"&&curCode)drawDayK();});
+async function fund(code,name){
+  const fb=document.getElementById("fundbox"); fb.innerHTML=`<div class="empty">加载 ${name} 基本面…</div>`;
+  let d; try{ d=await (await fetch("/api/forecast_fundamentals?code="+encodeURIComponent(code))).json(); }catch(e){ fb.innerHTML="加载失败"; return; }
+  if(!d.ok){ fb.innerHTML=`<div class="empty">${d.message||"无数据"}</div>`; return; }
+  let h=`<div style="font-weight:700;margin:4px 0">📊 ${d.name} 近3年年度</div>`;
+  h+='<table><thead><tr><th>年度</th><th>扣非净利</th><th>扣非增速</th><th>毛利率</th><th>ROE</th></tr></thead><tbody>';
+  h+=(d.annual||[]).map(a=>`<tr><td>${a.year}</td><td>${yi(a.dedt)}</td><td>${pc(a.dedt_yoy)}</td><td>${a.gm==null?'-':a.gm+'%'}</td><td>${a.roe==null?'-':a.roe+'%'}</td></tr>`).join('');
+  h+='</tbody></table>';
+  h+=`<div style="color:#94a3b8;font-size:11px;margin:6px 0 2px">单季(近12季): 单季扣非增速 / 单季毛利率</div>`;
+  h+='<table><thead><tr><th>季度</th><th>单季扣非增速</th><th>单季毛利率</th></tr></thead><tbody>';
+  h+=(d.quarterly||[]).map(q=>`<tr><td>${q.period}</td><td>${pc(q.dedt_yoy)}</td><td>${q.gm_single==null?'-':q.gm_single+'%'}</td></tr>`).join('');
+  h+='</tbody></table>';
+  fb.innerHTML=h; fb.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function tbl(rows, withFund){
+  if(!rows||!rows.length) return '<div class="empty">— 无 —</div>';
+  let h="<table><thead><tr><th>代码</th><th>名称</th><th>回购公告</th><th>公告日</th><th>已持有(日)</th><th>距平仓</th>"+(withFund?"<th>基本面</th>":"")+"</tr></thead><tbody>";
+  h+=rows.map(r=>{
+    const nm=(r.name||'').replace(/'/g,'');
+    return "<tr>"+
+      `<td><span class="lk" onclick="pick('${r.code}','${nm}')">${r.code}</span></td>`+
+      `<td>${r.name||''}</td><td><span class="tag">${r.proc||''}</span></td>`+
+      `<td>${r.ann_date||''}</td><td>${r.held_td}</td><td>${r.to_close}</td>`+
+      (withFund?`<td><span class="lk" onclick="fund('${r.code}','${nm}')">📊查看</span></td>`:"")+
+      "</tr>";
+  }).join("");
+  return h+"</tbody></table>";
+}
+
+fetch("/api/repo").then(r=>r.json()).then(d=>{
+  let h=`<div class="hd">🔁 回购事件腿 · 第四sleeve</div><div class="upd">更新 ${d.updated||"-"} · 今日 ${d.today||"-"} · 当前持仓 ${d.n_holdings||0} 只</div>`;
+  h+=`<div class="sub">${d.strategy||""}</div>`;
+  if((d.holdings||[]).length===0){
+    h+=`<div class="card"><div class="empty">当前无回购持仓。回购公告全年都有,通常市场低迷期更密集。</div></div>`;
+  }else{
+    h+=`<div class="card buy"><h3>🟢 今日建仓 (${(d.buy_today||[]).length}只) <span style="font-size:12px;color:#94a3b8;font-weight:400">— 点「📊查看」看近3年扣非增速/毛利率/ROE</span></h3>${tbl(d.buy_today,true)}</div>`;
+    h+=`<div class="card sell"><h3>🔴 临近平仓·持满60日 (${(d.sell_soon||[]).length}只)</h3>${tbl(d.sell_soon,false)}</div>`;
+    h+=`<div class="card"><h3 style="color:#60a5fa">📋 当前全部持仓 (${d.n_holdings}只)</h3>${tbl((d.holdings||[]).slice(0,200),false)}</div>`;
+  }
+  if(d.note) h+=`<div class="note"><span class="warn">⚠️ </span>${d.note}</div>`;
+  document.getElementById("content").innerHTML=h;
+  loadIntra();
+}).catch(e=>{document.getElementById("content").innerHTML=`加载失败: ${e}`;});
+</script>
+</body>
+</html>

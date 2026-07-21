@@ -1,0 +1,77 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>24 vs 158 预测对比 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  select{background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;padding:5px 9px;border-radius:7px;font-size:13px}
+  .stats{display:flex;gap:18px;flex-wrap:wrap;background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:10px 14px;margin:8px 0;font-size:13px;color:#cbd5e1}
+  .stats b{color:#e2e8f0;font-size:16px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .col h3{font-size:14px;margin:4px 0 6px;color:#60a5fa}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{border:1px solid #1e293b;padding:4px 7px;text-align:right}
+  th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){text-align:left}
+  th{background:#111827;color:#94a3b8}
+  tr.common td{background:#0c1f1a}
+  .dot{color:#34d399;font-weight:700}
+  .dim{color:#475569}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  nav.topnav{flex-wrap:wrap !important;row-gap:6px;overflow:visible}
+  nav.topnav .navbreak{flex-basis:100% !important;width:100%;height:1px;margin:4px 0;background:#1e293b;border:0}
+  nav.topnav .navlabel{color:#a78bfa;font-size:12px;align-self:center;margin-right:2px}
+  nav.topnav a small{color:#64748b;font-size:10px;margin-left:2px}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>把<b>24因子(RD-Agent子集)</b>和<b>158因子(全Alpha158)</b>各自的次日 Top-50 买入清单并排, 绿点=两边都选中的重合股。左边可选24因子的某次结果(模型×批次)。158侧来自 <a href="/predict-a158">Alpha158预测页</a>(先去那跑一次)。看两套特征选出的票差多少、重合度多高。<b>仅供研究。</b></div></details>
+  <div class="wrap">
+    <div class="bar">
+      <span style="color:#64748b;font-size:12px">24因子批次:</span><select id="batch"></select>
+      <span id="st" style="color:#94a3b8;font-size:12px"></span>
+    </div>
+    <h3 style="font-size:14px;color:#60a5fa;margin:8px 0 4px">📊 该批次所有模型 Top30 对比(共识高亮) <span id="bmeta" class="dim" style="font-size:12px;font-weight:400"></span></h3>
+    <div id="batchgrid" class="lo" style="font-size:12px">加载中…</div>
+    <h3 style="font-size:14px;color:#34d399;margin:20px 0 4px">📊 所有 158 模型 Top30 对比(共识高亮) <span id="ameta" class="dim" style="font-size:12px;font-weight:400"></span></h3>
+    <div id="allgrid" class="lo" style="font-size:12px">加载中…</div>
+    <div class="note">「共识」=被几个模型同时选进 Top30; 绿格=该票在该模型里的排名。多绿=多模型共识(更稳), 单绿=单模型独宠(更投机)。上方 24因子按<b>批次</b>切换(同批次所有模型一起比); 下方是 Alpha158 的所有模型(去 <a href="/predict-a158" style="color:#60a5fa">预测页</a>「一键全跑」补齐)。</div>
+  </div>
+<script>
+const $=id=>document.getElementById(id);
+function gridHtml(d){
+  if(!d.models||!d.models.length) return '<div class="dim" style="padding:8px">无数据</div>';
+  let h=`<table><thead><tr><th>共识</th><th>代码</th><th>名称</th>`+d.models.map(m=>`<th>${m}</th>`).join('')+'</tr></thead><tbody>';
+  h+=d.rows.map(r=>{const cons=r.n_picks>=2;
+    return `<tr class="${cons?'common':''}"><td><b style="color:${cons?'#5eead4':'#64748b'}">${r.n_picks}</b></td><td><a href="/?code=${r.code}" style="color:#60a5fa">${r.code}</a></td><td>${(r.name||'').replace(/</g,'&lt;')}</td>`+
+      d.models.map(m=>{const rk=r.picks[m]; return rk?`<td style="background:#0c1f1a;color:#5eead4">${rk}</td>`:'<td class="dim">·</td>';}).join('')+'</tr>';}).join('');
+  return h+'</tbody></table>';
+}
+async function loadBatch(batch){
+  $("st").textContent="加载中…";
+  let d; try{ d=await (await fetch("/api/predict_compare/batch"+(batch?("?batch="+encodeURIComponent(batch)):""))).json(); }catch(e){ $("st").textContent="加载失败"; return; }
+  if(!$("batch").dataset.filled && d.batches){
+    $("batch").innerHTML=d.batches.map(b=>`<option value="${b}">${b}</option>`).join("");
+    if(d.batch) $("batch").value=d.batch;
+    $("batch").dataset.filled="1";
+  }
+  $("bmeta").textContent=(d.rows&&d.rows.length)?`· ${d.models.length}模型 · ${d.rows.length}只 · 基准日 ${d.as_of||''}`:"· 该批次无清单";
+  $("batchgrid").innerHTML=gridHtml(d);
+  $("st").textContent="";
+}
+async function loadAllGrid(){
+  let d; try{ d=await (await fetch("/api/predict_a158/all?topn=30")).json(); }catch(e){ return; }
+  if(!d.models||!d.models.length){ $("allgrid").innerHTML='<div class="dim">还没有多模型打分。去 <a href="/predict-a158" style="color:#60a5fa">Alpha158预测页</a> 点「🚀一键全跑」。</div>'; return; }
+  $("ameta").textContent=`· ${d.models.length}模型 · 基准日 ${d.as_of||''}`;
+  $("allgrid").innerHTML=gridHtml(d);
+}
+$("batch").onchange=()=>loadBatch($("batch").value);
+loadBatch();
+loadAllGrid();
+</script>
+</body>
+</html>

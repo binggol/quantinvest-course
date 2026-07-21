@@ -1,0 +1,210 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>每日操作台 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:880px;margin:0 auto;padding:14px}
+  .hero{background:linear-gradient(90deg,#1e3a5f,#0f172a);border:1px solid #2a4a6a;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+  .hero .big{font-size:26px;font-weight:800}.hero .sub{color:#94a3b8;font-size:12px;margin-top:3px}
+  .sec{font-size:14px;font-weight:700;color:#e2e8f0;margin:16px 0 7px;border-left:3px solid #3b82f6;padding-left:8px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:11px 14px;margin-bottom:10px}
+  .row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #161f30;font-size:13px;flex-wrap:wrap}
+  .row:last-child{border-bottom:none}
+  .tag{font-size:11px;padding:2px 8px;border-radius:8px;font-weight:600}
+  .buy{background:#0c2a1a;color:#34d399}.sell{background:#3a1414;color:#f87171}.hold{background:#1e293b;color:#94a3b8}
+  .due{background:#3a2a08;color:#fbbf24}.on{background:#0c2a1a;color:#34d399}
+  .nm{font-weight:600}.cd{color:#64748b;font-size:12px}
+  .empty{color:#64748b;font-size:12.5px;padding:4px 0}
+  .iron{background:#1a0f0f;border:1px solid #4a1a1a;border-radius:8px;padding:10px 13px;margin-top:14px;font-size:12px;color:#fca5a5;line-height:1.8}
+  .pill{font-size:11px;padding:1px 7px;border-radius:8px;background:#1e293b;color:#cbd5e1}
+  a.go{color:#60a5fa;font-size:12px;text-decoration:none;margin-left:auto}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div id="cross-market-alert" class="card" style="display:none;border-color:#7c2d12"></div>
+    <div class="hero">
+      <div class="big" id="hero-big">加载中…</div>
+      <div class="sub" id="hero-sub"></div>
+    </div>
+    <div id="body"></div>
+    <div class="iron">
+      <b>⚠️ 铁律(已用数据钉死,别犯):</b><br>
+      ❌ 不追涨停/打板(负期望,封板率10-40%炸板送钱) ❌ 不追热榜/题材(接最后一棒) ❌ 不做日内/次日方向预测(48.8%抛硬币) ❌ 不频繁做T/换手(手续费吃光) ❌ 不反复点挖矿(量价饱和)<br>
+      ✅ 你的优势是<b>纪律和系统</b>,不是手速。80%的日子最优操作=持有Pro篮子不动。
+    </div>
+  </div>
+<script>
+fetch("/api/cross_market?sector=storage").then(r=>r.json()).then(d=>{
+  const strong=(d.downside||[]).filter(x=>(x.score||0)>=80);
+  if(!strong.length)return;
+  const e=document.getElementById("cross-market-alert");e.style.display="block";
+  e.innerHTML=`<b style="color:#fca5a5">⚠ 跨市场下跌预警</b>　${strong.slice(0,5).map(x=>x.name||x.code).join("、")}　<a href="/cross-market" style="color:#60a5fa">查看强弱榜→</a>${d.mode!=="live"?' <span style="color:#fbbf24">研究观察，不执行</span>':""}`;
+}).catch(()=>{});
+function item(it){
+  const nm=it.name||it.code||"", cd=it.code||"", info=it.proc||it.board||it.info||it.status||"";
+  return `<div class="row"><span class="nm">${nm}</span><span class="cd">${cd}</span>${info?`<span class="pill">${info}</span>`:""}</div>`;
+}
+function sleeveCard(title, buys, sells, link, buyLabel, sellLabel){
+  let h=`<div class="card"><div style="font-weight:700;margin-bottom:4px">${title}<a class="go" href="${link}">详情→</a></div>`;
+  if(!buys.length && !sells.length){ h+=`<div class="empty">今日无触发,持有/观望</div>`; }
+  if(buys.length){ h+=`<div class="row"><span class="tag buy">${buyLabel}</span></div>`+buys.map(item).join(""); }
+  if(sells.length){ h+=`<div class="row"><span class="tag sell">${sellLabel}</span></div>`+sells.map(item).join(""); }
+  return h+`</div>`;
+}
+async function load(){
+  let d; try{ d=await (await fetch("/api/daily_ops")).json(); }catch(e){ document.getElementById("hero-big").textContent="加载失败"; return; }
+  document.getElementById("hero-big").innerHTML = d.n_actions>0 ? `今天有 <span style="color:#fbbf24">${d.n_actions}</span> 件事要处理` : `今天无事 — 持有不动就好 ✅`;
+  document.getElementById("hero-sub").textContent = `页面检查 ${d.updated} · 持仓 ${d.n_holdings} 只 · 每60秒自动刷新`;
+  const c=d.core, s=d.sleeves, body=document.getElementById("body");
+  let h="";
+  // ① 底仓
+  h+=`<div class="sec">① 底仓 · 顾问Pro(季频)</div><div class="card"><div class="row">`;
+  if(c.due){ h+=`<span class="tag due">⚠️ 已到调仓时点</span><span>该换仓了</span>`; }
+  else if(c.days_to!=null){ h+=`<span class="tag hold">持有不动</span><span>距下次调仓还有 <b>${c.days_to}</b> 天</span>`; }
+  else { h+=`<span class="tag hold">持有不动</span><span>季频持有</span>`; }
+  h+=`<span class="pill">${c.regime_label||c.regime||""}</span>
+    <button onclick="refreshPro()" title="重算顾问Pro篮子, 并连带重算组合清单(主300腿)→ 组合配置页主300同步更新, 约1-2分钟" style="font-size:11px;padding:3px 9px;background:#1e3a5f;color:#e2e8f0;border:1px solid #2a4a6a;border-radius:6px;cursor:pointer;margin-left:auto">🔄 重算Pro+组合(主300)</button>
+    <a class="go" href="/advisor-pro" style="margin-left:8px">看篮子→</a></div>
+    <span id="pro-msg" style="color:#94a3b8;font-size:11.5px"></span></div>`;
+  // ①b 下一日预测清单(三池重算按钮)
+  h+=`<div class="card"><div style="font-weight:700;margin-bottom:6px">🔮 下一日买入预测 · 重算/全流程</div>
+    <div style="font-size:11.5px;color:#94a3b8;margin-bottom:8px">🟦沪深300=三合一全流程(全跑模型+研报+行业瓶颈链, 每天1:30自动)；🟩🟨小盘池仅出清单。收盘后点对应按钮→通知PC处理, 跑完去对应页看。</div>
+    <div id="pred-btns" style="display:flex;flex-direction:column;gap:7px"></div>
+    <span id="pred-msg" style="color:#94a3b8;font-size:12px"></span>
+    <div id="pipe-prog" style="margin-top:8px;display:none"></div></div>`;
+  // ①c RSRS 大盘方向(独立方向腿, 给指数ETF仓位用)
+  const rs=d.rsrs||{};
+  h+=`<div class="card"><div style="font-weight:700;margin-bottom:4px">🧭 RSRS 大盘方向 <span style="color:#64748b;font-size:11px;font-weight:400">(独立方向信号, ≤10%仓位用指数ETF; 翻转邮件来才次日调)</span><a class="go" href="/rsrs">详情→</a></div>`;
+  if(!(rs.indices||[]).length){ h+=`<div class="empty">无RSRS数据(去/rsrs点刷新或查PC)</div>`; }
+  else { h+=`<div class="row" style="flex-wrap:wrap;gap:14px">`+rs.indices.map(x=>{
+    const hold=x.state==='持有';
+    return `<span><b>${x.name}</b> <span class="tag ${hold?'on':'sell'}">${hold?'🟢持有(满仓ETF)':'🔴空仓(现金)'}</span> <span class="cd">分${x.score!=null?x.score.toFixed(2):'-'}</span>${x.flip?' <span class="tag due">⚠️刚翻转</span>':''}</span>`;
+  }).join('')+`</div></div>`; }
+  // ② 事件腿
+  h+=`<div class="sec">② 事件腿 · 今日触发(有就动手)</div>`;
+  h+=sleeveCard("🚀 业绩抢跑", s.runup.buy, s.runup.sell, "/runup", "今日建仓", "今日平仓");
+  h+=sleeveCard("🔁 回购腿", s.repo.buy, s.repo.sell, "/repo", "今日建仓", "临近平仓");
+  // 海力士
+  h+=`<div class="card"><div style="font-weight:700;margin-bottom:4px">🇰🇷 海力士映射<a class="go" href="/chipmap">详情→</a></div><div class="row">`;
+  if(s.hynix.on){ h+=`<span class="tag on">🟢 触发</span><span>海力士${s.hynix.date||""} ${s.hynix.ret!=null?(s.hynix.ret>0?"+":"")+(s.hynix.ret*100).toFixed(1)+"%":""} → <b>尾盘买A股半导体持1天</b></span>`; }
+  else { h+=`<span class="tag hold">未触发</span><span>${s.hynix.signal||"海力士未达+2%阈值"}</span>`; }
+  h+=`</div></div>`;
+  // 打新(今日可申购 + 即将)
+  h+=`<div class="card"><div style="font-weight:700;margin-bottom:4px">🎯 打新(逢新必打)<a class="go" href="/ipo">详情→</a></div>`;
+  if(!s.ipo.today.length && !s.ipo.soon.length){ h+=`<div class="empty">近期无新股</div>`; }
+  if(s.ipo.today.length){ h+=`<div class="row"><span class="tag buy">今日可申购</span></div>`+s.ipo.today.map(item).join(""); }
+  if(s.ipo.soon.length){ h+=s.ipo.soon.map(x=>`<div class="row"><span class="tag hold">即将</span><span class="nm">${x.name||""}</span><span class="cd">${x.code||""}</span><span class="pill">${x.ipo_date||""} ${x.board||""}</span></div>`).join(""); }
+  h+=`</div>`;
+  // ③ 踩雷
+  h+=`<div class="sec">③ 持仓提示 · 按持有期决定</div><div class="card">`;
+  if(!d.risk.length){ h+=`<div class="empty">✅ 持仓干净,无热榜/毛利/雪球预警</div>`; }
+  else {
+    const isHot=r=>String(r.label||'').indexOf('热榜')>=0;
+    h+=d.risk.map(r=>{
+      const note=isHot(r)
+        ? '<span style="color:#94a3b8;font-size:11px">热榜=20日中期反转风险; <b style="color:#86efac">短线持有反而有动量, 别急着减</b>; 中期持有(月+)才警惕</span>'
+        : '<span style="color:#fca5a5;font-size:11px">基本面/结构性预警, 真该警惕</span>';
+      return `<div class="row"><span class="tag sell">${r.label}</span><span class="nm">${r.name||r.code}</span><span class="cd">${r.code}</span><span class="pill">${r.info||""}</span>${note}</div>`;
+    }).join("");
+    h+=`<div style="font-size:11px;color:#64748b;margin-top:6px">🔥热榜=情绪信号(看持有期, 不是必剔) · 📉毛利恶化=基本面变差(真警惕) · 留痕供你决定, 不自动剔仓</div>`;
+  }
+  h+=`</div>`;
+  body.innerHTML=h;
+  renderPredBtns();
+  // 进页面时若全流程已在跑(刚点过/自动跑中), 自动显示进度
+  fetch("/api/pipeline_status").then(r=>r.json()).then(p=>{ if(p&&p.active) startPipePoll(); }).catch(()=>{});
+  loadHealth();
+}
+// 下一日预测三池重算按钮(每个写清楚干什么)
+const PRED_BTNS=[
+  {label:"🟦 沪深300·三合一", desc:"<b>全流程</b>(每天1:30自动, 关机没跑点这补): 最新批次一键全跑6模型→①汇总xgb/catboost次日清单→②刷新<b>顾问Pro篮子</b>→③缺失/久远<b>个股研报</b>自动生成→④清单股票主营行业里<b>瓶颈链没分析过的</b>(取前3如半导体/元器件)按MLCC/电子布框架生成。约30-60分。", page:"/rdagent",
+   fn:async()=>{ let b=""; try{ const j=await (await fetch("/api/rdagent/batches")).json(); b=(j.batches&&j.batches[0]&&(j.batches[0].label||j.batches[0]))||""; }catch(e){} return fetch(`/api/rdagent/run_all?batch=${encodeURIComponent(b)}&gen_reports=1`,{method:"POST"}).then(r=>r.json()); }},
+  {label:"🟩 中证1000(打小盘·最强池)", desc:"Alpha158因子, 中证1000次日清单。挖矿因子在小盘最有效(IR1.47)。只跑XGB一个模型省时(几~十几分)。", page:"/predict-csi1000",
+   fn:()=>fetch("/api/pool_predict/runall",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({universe:"csi1000",model:"xgb"})}).then(r=>r.json())},
+  {label:"🟨 中证500(中盘池)", desc:"Alpha158因子, 中证500次日清单。只跑XGB省时。", page:"/predict-csi500",
+   fn:()=>fetch("/api/pool_predict/runall",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({universe:"csi500",model:"xgb"})}).then(r=>r.json())},
+];
+function renderPredBtns(){
+  const box=document.getElementById("pred-btns"); if(!box) return;
+  box.innerHTML=PRED_BTNS.map((b,i)=>
+    `<div style="display:flex;align-items:flex-start;gap:8px">
+       <button onclick="runPred(${i})" style="font-size:12px;padding:6px 10px;background:#1e3a5f;color:#e2e8f0;border:1px solid #2a4a6a;border-radius:6px;cursor:pointer;white-space:normal;width:150px;min-width:150px;flex:0 0 150px;text-align:left;line-height:1.35">${b.label}</button>
+       <span style="font-size:11px;color:#94a3b8;line-height:1.5;flex:1;min-width:0">${b.desc} <a href="${b.page}" style="color:#60a5fa">看清单→</a></span>
+     </div>`).join("");
+}
+function refreshPro(){
+  const msg=document.getElementById("pro-msg"); if(msg)msg.textContent="提交中…";
+  fetch("/api/advisor-pro/request",{method:"POST"}).then(r=>r.json()).then(r=>{
+    if(msg)msg.innerHTML=`<span style="color:${r.ok?'#86efac':'#fca5a5'}">${r.message||(r.ok?'已提交':'失败')}</span>`;
+  }).catch(e=>{ if(msg)msg.innerHTML='<span style="color:#fca5a5">提交失败</span>'; });
+}
+function runPred(i){
+  const b=PRED_BTNS[i], msg=document.getElementById("pred-msg");
+  msg.textContent="提交中…";
+  b.fn().then(r=>{ msg.innerHTML=`<span style="color:${r.ok?'#86efac':'#fca5a5'}">${r.message||(r.ok?'已提交':'失败')}</span>`; if(i===0)startPipePoll(); })
+   .catch(e=>{ msg.innerHTML='<span style="color:#fca5a5">提交失败</span>'; });
+}
+function refreshBackfill(){
+  if(!confirm("确定要让 PC 重新下载缺失的行情数据吗？(通常需要 1~3 分钟)")) return;
+  fetch("/api/refresh/backfill", {method:"POST"}).then(r=>r.json()).then(r=>{
+    alert(r.message || (r.ok ? "已提交后台刷新" : "刷新失败"));
+  }).catch(e=>alert("提交失败"));
+}
+// 三合一全流程实时进度(模型→研报→行业), 轮询/api/pipeline_status
+let _pipeTimer=null;
+async function pollPipe(){
+  let d; try{ d=await (await fetch("/api/pipeline_status")).json(); }catch(e){ return; }
+  const box=document.getElementById("pipe-prog"); if(!box) return;
+  box.style.display="block";
+  const step=(active,label,detail)=>`<div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="font-size:13px">${active?'⏳':(detail&&detail.indexOf('完成')<0?'⚪':'✅')}</span><b style="color:${active?'#fbbf24':'#94a3b8'};min-width:88px;font-size:12px">${label}</b><span style="color:#cbd5e1;font-size:11.5px">${detail||''}</span></div>`;
+  const m=d.model||{}, r=d.report||{}, t=d.thesis||{};
+  const mActive=m.state==="running", rActive=r.state==="running", tActive=t.state==="running";
+  const rBar=r.n?` ${r.i}/${r.n}`:"";
+  let h=`<div style="background:#0b1220;border:1px solid #2a4a6a;border-radius:8px;padding:8px 10px">
+    <div style="font-size:11.5px;color:#7dd3fc;font-weight:700;margin-bottom:4px">🔄 三合一进度 <span style="color:#64748b;font-weight:400">(${d.ts} · 每8秒刷新)</span></div>
+    ${step(mActive, "① 全跑模型", m.msg||(d.stage==="idle"&&!d.active?"已完成或未开始":""))}
+    ${step(rActive, "② 个股研报", (r.msg||"")+rBar)}
+    ${step(tActive, "③ 行业瓶颈链", t.theme?`${t.theme}: ${t.msg||""}`:(t.msg||""))}`;
+  if(!d.active){ h+=`<div style="color:#86efac;font-size:11.5px;margin-top:4px">✅ 全流程完成(或空闲)。去 <a href="/rdagent" style="color:#60a5fa">清单</a> / <a href="/report" style="color:#60a5fa">研报</a> / <a href="/thesis" style="color:#60a5fa">瓶颈链</a> 看产出。</div>`; }
+  h+=`</div>`;
+  box.innerHTML=h;
+  if(!d.active){ // 连续2次空闲才停(防阶段切换间隙误停)
+    if(_pipeIdle>=1){ clearInterval(_pipeTimer); _pipeTimer=null; } else { _pipeIdle++; }
+  } else { _pipeIdle=0; }
+}
+let _pipeIdle=0;
+function startPipePoll(){ _pipeIdle=0; if(_pipeTimer) clearInterval(_pipeTimer); pollPipe(); _pipeTimer=setInterval(pollPipe,8000); }
+async function loadHealth(){
+  let d; try{ d=await (await fetch("/api/data_health")).json(); }catch(e){ return; }
+  const it=d.items||[];
+  const bad=it.filter(x=>x.status!=="fresh");
+  const ico={fresh:"🟢",stale:"🔴",missing:"⬛",unknown:"🟡"};
+  const lab={fresh:"新鲜",stale:"过期",missing:"缺失",unknown:"无时间戳"};
+  let h=`<div class="sec" style="display:flex;justify-content:space-between;align-items:center">
+    <span>④ 数据新鲜度 · 下单前检查 ${d.n_bad?`<span style="color:#f87171">⚠️ ${d.n_bad}项需注意</span>`:'<span style="color:#34d399">✅ 全部新鲜</span>'}</span>
+    <button onclick="refreshBackfill()" title="通知 PC 重新拉取缺失的行情数据 (约1-3分钟)" style="font-size:11px;padding:3px 9px;background:#1e3a5f;color:#e2e8f0;border:1px solid #2a4a6a;border-radius:6px;cursor:pointer;">🔄 补全行情数据</button>
+  </div>`;
+  h+=`<div class="card"><div style="font-size:11.5px;color:#94a3b8;margin-bottom:6px">📖 <b>下单前看这里</b>: 各事件腿/避雷数据的最后更新。<b style="color:#fca5a5">🔴过期/⬛缺失=别用该腿旧清单下单</b>(防数据断供你还在照旧清单买、像北向断供那种坑)。<b style="color:#86efac">处理:</b> 🔴过期→去对应页点「🔄刷新」让PC重拉, 或检查PC watcher/计划任务是否在跑; ⬛缺失→该腿export脚本没生成过。🟢新鲜=放心用。${d.as_of} 检查于${d.ts}</div>`;
+  h+=`<table style="width:100%;border-collapse:collapse;font-size:12.5px"><tbody>`;
+  // 过期/缺失置顶
+  it.sort((a,b)=>(a.status==="fresh"?1:0)-(b.status==="fresh"?1:0));
+  h+=it.map(x=>{
+    const color=x.status==="fresh"?"#64748b":(x.status==="stale"?"#f87171":(x.status==="missing"?"#94a3b8":"#fbbf24"));
+    const dtxt=x.days==null?"—":(x.days===0?"今日":x.days+"天前");
+    const warn=x.status==="stale"?` <span style="color:#f87171">(超${x.max_fresh}天阈值)</span>`:(x.status==="missing"?' <span style="color:#94a3b8">'+(x.msg||'')+'</span>':'');
+    return `<tr style="border-top:1px solid #1e293b"><td style="padding:4px 6px">${ico[x.status]} <b>${x.label}</b></td><td style="padding:4px 6px;color:${color}">${x.updated||'-'} · ${dtxt}${warn}</td><td style="padding:4px 6px;text-align:right;color:#64748b">${x.n}条</td><td style="padding:4px 6px;color:#64748b;font-size:11px">${x.note}</td></tr>`;
+  }).join("");
+  h+=`</tbody></table></div>`;
+  const previous=document.getElementById("data-health-section"); if(previous)previous.remove();
+  const hd=document.createElement("div"); hd.id="data-health-section"; hd.innerHTML=h; document.getElementById("body").appendChild(hd);
+}
+load();
+setInterval(load,60000);
+</script>
+</body>
+</html>

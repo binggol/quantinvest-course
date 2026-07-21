@@ -1,0 +1,123 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>组合风控总控 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1280px;margin:0 auto;padding:14px}
+  .head{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:10px 0 12px}
+  h1{font-size:22px;margin:0}
+  .muted{color:#94a3b8;font-size:12px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:13px 15px;margin:12px 0}
+  .grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+  .kpi{background:#0b1220;border:1px solid #1e293b;border-radius:8px;padding:10px}
+  .kpi b{display:block;font-size:22px;color:#e2e8f0}.kpi span{color:#94a3b8;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{border-bottom:1px solid #1e293b;padding:7px 8px;text-align:right;vertical-align:top}
+  th{background:#0f172a;color:#94a3b8;position:sticky;top:0;z-index:1}
+  th.l,td.l{text-align:left}.tablewrap{max-height:680px;overflow:auto;border:1px solid #1e293b;border-radius:8px}
+  .pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;background:#1e293b;color:#cbd5e1;margin:1px 2px 1px 0}
+  .buy{color:#34d399}.reduce{color:#fbbf24}.wait{color:#fb923c}.exclude{color:#f87171}.hold{color:#7dd3fc}
+  .risk{color:#fca5a5}.warn{color:#fbbf24}.ok{color:#34d399}
+  button{border:1px solid #334155;background:#111827;color:#e2e8f0;border-radius:6px;padding:7px 11px;cursor:pointer}
+  select{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:7px 9px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  @media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>组合风控总控</h1>
+      <div class="muted">读取现有买入清单，叠加市场风险、询转/定增/其他解禁、避雷清单，给出最终动作和建议仓位。</div>
+    </div>
+    <div class="bar">
+      <select id="action-filter" onchange="renderRows()">
+        <option value="">全部动作</option>
+        <option value="买入">买入</option>
+        <option value="降权">降权</option>
+        <option value="暂缓">暂缓</option>
+        <option value="排除">排除</option>
+      </select>
+      <button onclick="load()">刷新</button>
+    </div>
+  </div>
+  <div id="status" class="muted">加载中...</div>
+  <div class="grid" id="kpis"></div>
+  <div class="card">
+    <div class="bar" style="justify-content:space-between;margin-bottom:8px">
+      <b>最终清单</b>
+      <span class="muted" id="method"></span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th class="l">代码</th><th class="l">名称</th><th>动作</th><th>原仓位</th><th>建议仓位</th><th>风险折扣</th><th class="l">来源</th><th class="l">原因/提示</th><th class="l">解禁</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<script>
+let DATA=null;
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function cls(a){return a==='买入'?'buy':(a==='降权'?'reduce':(a==='暂缓'?'wait':(a==='排除'?'exclude':'hold')))}
+function tags(xs,klass='pill'){return (xs||[]).map(x=>`<span class="${klass}">${esc(x)}</span>`).join('')}
+function unlockText(u){
+  if(!u||!u.label||u.label==='无解禁数据')return '<span class="muted">-</span>';
+  const c=u.status==='high'?'risk':(u.status==='watch'?'warn':'muted');
+  return `<span class="${c}">${esc(u.label)}</span>`;
+}
+function renderKpis(){
+  const s=DATA.summary||{}, m=DATA.market||{};
+  const rows=[
+    [s.n_total||0,'候选股票'],
+    [s.n_buy||0,'正常买入'],
+    [s.n_reduce||0,'降权'],
+    [s.n_wait||0,'暂缓'],
+    [s.n_exclude||0,'排除']
+  ];
+  document.getElementById('kpis').innerHTML=rows.map(x=>`<div class="kpi"><b>${x[0]}</b><span>${x[1]}</span></div>`).join('');
+  document.getElementById('status').innerHTML=`更新 ${esc(DATA.updated)} · 市场风险 <b class="${m.level==='high'?'exclude':(m.level==='watch'?'warn':'ok')}">${esc(m.level||'unknown')}</b> · 分数 ${m.score??0} · 仓位乘数 ${m.multiplier??1} · 目标总仓位 ${s.gross_target_pct??0}%`;
+  document.getElementById('method').textContent=DATA.method||'';
+}
+function renderRows(){
+  if(!DATA)return;
+  const filter=document.getElementById('action-filter').value;
+  let rows=DATA.items||[];
+  if(filter)rows=rows.filter(x=>x.action===filter);
+  document.getElementById('rows').innerHTML=rows.map((x,i)=>{
+    const notes=[...(x.reasons||[]),...(x.warnings||[])];
+    return `<tr>
+      <td>${i+1}</td>
+      <td class="l"><a href="/report?code=${encodeURIComponent(x.code||x.code6||'')}">${esc(x.code||x.code6)}</a></td>
+      <td class="l">${esc(x.name||'')}</td>
+      <td class="${cls(x.action)}"><b>${esc(x.action)}</b></td>
+      <td>${Number(x.base_pct||0).toFixed(2)}%</td>
+      <td><b>${Number(x.target_pct||0).toFixed(2)}%</b></td>
+      <td>${Number(x.risk_penalty||0).toFixed(1)}%</td>
+      <td class="l">${tags(x.sources)}</td>
+      <td class="l">${tags(notes,'pill')}</td>
+      <td class="l">${unlockText(x.unlock_info)}</td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="10" class="l muted">暂无数据</td></tr>';
+}
+async function load(){
+  document.getElementById('status').textContent='加载中...';
+  try{
+    DATA=await (await fetch('/api/portfolio_guard')).json();
+    renderKpis(); renderRows();
+  }catch(e){
+    document.getElementById('status').textContent='加载失败: '+e;
+  }
+}
+load();
+</script>
+</body>
+</html>
+

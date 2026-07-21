@@ -1,0 +1,366 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>自定义筛选 · QuantInvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline_contract.js"></script>
+</head>
+<body>
+<header class="screen-header">
+  <h1>QuantInvest · 自定义筛选</h1>
+  {% include "_nav.html" %}
+  {% if "internal_operations" in member_features %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>多因子选股器:设条件(估值/动量/换手/波动等)筛候选,可加自选。<span class="w">注意</span>:筛出≠买入,只是缩小范围,需再过策略验证。</div></details>
+  {% endif %}
+  <div class="meta" id="meta"></div>
+</header>
+
+<div class="screen-layout">
+  <!-- 左侧: 条件 + 结果 -->
+  <aside class="screen-side">
+    <div class="screen-criteria">
+      <h3>筛选条件</h3>
+      <div id="criteria-form">加载中...</div>
+      <button id="btn-run" disabled>应用筛选</button>
+      <div id="hit-stat" class="hit-stat"></div>
+    </div>
+    <div class="screen-results">
+      <table id="result-table">
+        <thead id="result-thead"></thead>
+        <tbody id="result-tbody"></tbody>
+      </table>
+    </div>
+  </aside>
+
+  <!-- 右侧: 迷你 K 线 -->
+  <main class="screen-main">
+    <div class="mini-controls">
+      <label class="ctrl-group">复权:
+        <select id="mini-adjust">
+          <option value="qfq" selected>前复权</option>
+          <option value="hfq">后复权</option>
+          <option value="none">不复权</option>
+        </select>
+      </label>
+    </div>
+    <div class="kline-mini-header" id="kline-mini-header">点击左侧某只股票, 在这里看 K 线</div>
+    <div id="chart-mini"></div>
+  </main>
+</div>
+
+<script>
+const $form = document.getElementById("criteria-form");
+const $btn = document.getElementById("btn-run");
+const $hitStat = document.getElementById("hit-stat");
+const $thead = document.getElementById("result-thead");
+const $tbody = document.getElementById("result-tbody");
+const $miniHeader = document.getElementById("kline-mini-header");
+const $miniAdjust = document.getElementById("mini-adjust");
+const $meta = document.getElementById("meta");
+const asArray = value => Array.isArray(value) ? value : [];
+const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+})[char]);
+const percentText = value => {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(1)}%` : "—";
+};
+
+let CONFIG = null;     // /api/screen/config 返回
+let results = [];      // 当前筛选结果
+let selectedIdx = -1;  // 当前选中的结果行
+let chart = null;
+let miniRequestNo = 0;
+
+// 切换复权方式时, 重新加载当前选中股票的 K 线
+$miniAdjust.addEventListener("change", () => {
+  if (selectedIdx >= 0 && results[selectedIdx]) loadMiniKline(results[selectedIdx]);
+});
+if (window.echarts) {
+  chart = echarts.init(document.getElementById("chart-mini"));
+  window.addEventListener("resize", () => chart.resize());
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => chart.resize()).observe(document.getElementById("chart-mini"));
+  }
+} else {
+  $miniHeader.textContent = "K 线图表组件加载失败，筛选表仍可使用";
+}
+
+// === 加载配置, 渲染表单 ===
+async function loadConfig() {
+  try {
+    const r = await fetch("/api/screen/config");
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || data.message || `HTTP ${r.status}`);
+    const periodLabels = asArray(data.periods).map(period => String((period || {}).label || "")).filter(Boolean);
+    if (periodLabels.length < 2) throw new Error("筛选报告期配置不完整");
+    CONFIG = { ...data, periods: periodLabels.map(label => ({ label })) };
+    const annuals = periodLabels.slice(0, -1);
+    const quarterly = periodLabels[periodLabels.length - 1];
+    $meta.textContent = `按今天 ${data.today || "-"} 自动判定: 年报 ${annuals.join("/")} + 最新一期 ${quarterly}`;
+
+    let html = "<div class='c-row'><label>扣非净利润同比增速 ≥ <input type='number' id='growth-min' value='20' step='5' min='-100' max='1000'>%</label></div>";
+    html += "<div class='c-row'><label>应用到这些报告期:</label><div class='period-checks'>";
+    for (const period of periodLabels) {
+      const safe = escapeHtml(period);
+      html += `<label><input type='checkbox' class='ck-period' value='${safe}' checked> ${safe}</label>`;
+    }
+    html += "</div></div>";
+    html += `<div class='c-row'><label><input type='checkbox' id='q-growth-on'> 最新一期(${escapeHtml(quarterly)})单季扣非增速 ≥ <input type='number' id='q-growth-min' value='0' step='5' min='-100' max='1000'>%</label></div>`;
+    html += "<div class='c-row'><label>ROE ≥ <input type='number' id='roe-min' value='8' step='1' min='-100' max='100'>%</label></div>";
+    html += "<div class='c-row'><label>ROE 取哪一期: <select id='roe-period'>";
+    for (const period of periodLabels) {
+      const safe = escapeHtml(period);
+      const selected = period === annuals[annuals.length - 1] ? " selected" : "";
+      html += `<option value='${safe}'${selected}>${safe}</option>`;
+    }
+    html += "</select></label></div>";
+    $form.innerHTML = html;
+    $btn.disabled = false;
+  } catch (error) {
+    CONFIG = null;
+    $form.textContent = `筛选条件加载失败：${error.message}`;
+    $meta.textContent = "暂时无法加载筛选配置";
+    $btn.disabled = true;
+  }
+}
+
+$btn.addEventListener("click", runScreen);
+function setHitMessage(message, isError = false) {
+  $hitStat.textContent = message;
+  $hitStat.classList.toggle("warn", isError);
+}
+
+async function runScreen() {
+  if (!CONFIG) return;
+  $btn.disabled = true;
+  setHitMessage("查询中...");
+  const growthMin = document.getElementById("growth-min").value;
+  const roeMin = document.getElementById("roe-min").value;
+  const roePeriod = document.getElementById("roe-period").value;
+  const qGrowthOn = document.getElementById("q-growth-on").checked;
+  const qGrowthMin = document.getElementById("q-growth-min").value;
+  const enabledPeriods = [...document.querySelectorAll(".ck-period:checked")].map(x => x.value);
+
+  const qs = new URLSearchParams({
+    growth_min: growthMin,
+    roe_min: roeMin,
+    roe_period: roePeriod,
+    q_growth_on: qGrowthOn ? "1" : "0",
+    q_growth_min: qGrowthMin,
+    growth_periods: enabledPeriods.join(","),
+    limit: "300",
+  });
+
+  try {
+    const r = await fetch("/api/screen?" + qs.toString());
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error(j.error || j.message || `HTTP ${r.status}`);
+    results = asArray(j.hits).filter(hit => hit && typeof hit === "object");
+    const criteria = j.criteria && typeof j.criteria === "object" ? j.criteria : {
+      growth_periods: enabledPeriods,
+      q_growth_period: CONFIG.periods[CONFIG.periods.length - 1].label,
+      roe_period: roePeriod
+    };
+    const total = Number.isFinite(Number(j.total_matched)) ? Number(j.total_matched) : results.length;
+    setHitMessage(j.message || `命中 ${total} 只, 显示前 ${results.length} 只`);
+    renderTable(criteria);
+    if (results.length > 0) {
+      selectRow(0);
+    } else {
+      selectedIdx = -1;
+      if (chart) chart.clear();
+      $miniHeader.textContent = "当前条件暂无命中股票";
+    }
+  } catch (e) {
+    results = [];
+    selectedIdx = -1;
+    renderTable({ growth_periods: enabledPeriods, q_growth_period: "-", roe_period: roePeriod });
+    setHitMessage(`⚠️ ${e.message}`, true);
+  } finally {
+    $btn.disabled = false;
+  }
+}
+
+function renderTable(criteria) {
+  criteria = criteria && typeof criteria === "object" ? criteria : {};
+  const growthPeriods = asArray(criteria.growth_periods).map(String);
+  const headRow = document.createElement("tr");
+  const appendHead = (text, title = "") => {
+    const th = document.createElement("th");
+    th.textContent = text;
+    if (title) th.title = title;
+    headRow.appendChild(th);
+  };
+  ["#", "代码", "名称", "行业"].forEach(text => appendHead(text));
+  growthPeriods.forEach(period => appendHead(`${period}Δ`, `扣非增速 ${period}`));
+  appendHead(`单季Δ(${criteria.q_growth_period || "-"})`, "最新一期单季扣非净利润同比");
+  appendHead(`ROE(${criteria.roe_period || "-"})`, "ROE");
+  $thead.replaceChildren(headRow);
+
+  const fragment = document.createDocumentFragment();
+  const appendCell = (row, text, className = "") => {
+    const td = document.createElement("td");
+    td.textContent = text;
+    if (className) td.className = className;
+    row.appendChild(td);
+  };
+  results.forEach((hit, index) => {
+    const growth = hit.growth && typeof hit.growth === "object" ? hit.growth : {};
+    const row = document.createElement("tr");
+    row.dataset.idx = String(index);
+    appendCell(row, String(index + 1));
+    appendCell(row, hit.code || "-", "code");
+    appendCell(row, hit.name || hit.code || "-");
+    appendCell(row, hit.industry || "", "industry");
+    growthPeriods.forEach(period => {
+      const value = growth[period];
+      const number = value === null || value === undefined || value === "" ? NaN : Number(value);
+      const className = Number.isFinite(number) ? `num ${number >= 0 ? "pos" : "neg"}` : "num";
+      appendCell(row, percentText(value), className);
+    });
+    const qNumber = hit.q_growth === null || hit.q_growth === undefined || hit.q_growth === "" ? NaN : Number(hit.q_growth);
+    appendCell(row, percentText(hit.q_growth), Number.isFinite(qNumber) ? `num ${qNumber >= 0 ? "pos" : "neg"}` : "num");
+    appendCell(row, percentText(hit.roe), "num roe");
+    row.addEventListener("click", () => selectRow(index));
+    fragment.appendChild(row);
+  });
+  if (!results.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6 + growthPeriods.length;
+    cell.className = "industry";
+    cell.textContent = "暂无符合条件的股票";
+    row.appendChild(cell);
+    fragment.appendChild(row);
+  }
+  $tbody.replaceChildren(fragment);
+}
+
+function selectRow(i) {
+  if (i < 0 || i >= results.length) return;
+  const prev = $tbody.querySelector("tr.selected");
+  if (prev) prev.classList.remove("selected");
+  const row = $tbody.querySelector(`tr[data-idx="${i}"]`);
+  if (row) {
+    row.classList.add("selected");
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  selectedIdx = i;
+  loadMiniKline(results[i]);
+}
+
+async function loadMiniKline(hit) {
+  const ownRequest = ++miniRequestNo;
+  if (!chart) {
+    $miniHeader.textContent = "K 线图表组件不可用";
+    return;
+  }
+  if (!hit || !hit.code) {
+    $miniHeader.textContent = "股票代码缺失，无法加载 K 线";
+    return;
+  }
+  $miniHeader.textContent = `${hit.name} · ${hit.code} · ${hit.industry || ""}  (加载中...)`;
+  try {
+    const adjust = $miniAdjust.value;
+    const params = new URLSearchParams({ code: hit.code, days: "0", adjust, refresh: "0" });
+    const r = await fetch(`/api/kline?${params}`);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ("HTTP " + r.status));
+    }
+    const d = await r.json();
+    if (ownRequest !== miniRequestNo) return;
+    const contract = QIKline.assertPayload(d, adjust);
+    drawMini(d);
+    $miniHeader.textContent =
+      `${hit.name} · ${hit.code} · ${hit.industry || ""}  ·  全部历史 (${contract.adjustLabel})${contract.qualityNotice ? ` · ${contract.qualityNotice}` : ""} · 拖动下方滑块缩放`;
+  } catch (e) {
+    if (ownRequest !== miniRequestNo) return;
+    $miniHeader.textContent = "K 线加载失败: " + e.message;
+  }
+}
+
+function drawMini(d) {
+  const dates = asArray(d && d.dates);
+  const opens = asArray(d && d.open);
+  const closes = asArray(d && d.close);
+  const lows = asArray(d && d.low);
+  const highs = asArray(d && d.high);
+  const volumes = asArray(d && d.volume);
+  if (!dates.length || [opens, closes, lows, highs, volumes].some(values => values.length !== dates.length)) {
+    throw new Error("行情字段缺失或长度不一致");
+  }
+  const kdata = dates.map((_, i) => [opens[i], closes[i], lows[i], highs[i]]);
+  const up = "#ef4444", down = "#22c55e";
+  chart.setOption({
+    animation: false,
+    tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+    legend: { data: ["K线", "MA5", "MA10", "MA20", "MA60"], top: 0 },
+    grid: [
+      { left: 50, right: 15, top: 30, height: "58%" },
+      { left: 50, right: 15, top: "72%", height: "18%" },
+    ],
+    xAxis: [
+      { type: "category", data: dates, scale: true, boundaryGap: false,
+        axisLine: { onZero: false }, splitLine: { show: false }, axisLabel: { show: false } },
+      { type: "category", gridIndex: 1, data: dates, scale: true, boundaryGap: false,
+        axisLine: { onZero: false }, axisTick: { show: false }, splitLine: { show: false },
+        axisLabel: { fontSize: 10 } },
+    ],
+    yAxis: [
+      { scale: true, splitArea: { show: true } },
+      { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, axisLine: { show: false },
+        axisTick: { show: false }, splitLine: { show: false } },
+    ],
+    dataZoom: [
+      { type: "inside", xAxisIndex: [0, 1], start: 70, end: 100 },
+      { show: true, xAxisIndex: [0, 1], type: "slider", top: "93%", start: 70, end: 100 },
+    ],
+    series: [
+      { name: "K线", type: "candlestick", data: kdata,
+        itemStyle: { color: up, color0: down, borderColor: up, borderColor0: down } },
+      makeMA("MA5", closes, 5),
+      makeMA("MA10", closes, 10),
+      makeMA("MA20", closes, 20),
+      makeMA("MA60", closes, 60),
+      { name: "Volume", type: "bar", xAxisIndex: 1, yAxisIndex: 1,
+        data: volumes.map((v, i) => ({ value: v, itemStyle: { color: closes[i] >= opens[i] ? up : down } })) },
+    ],
+  }, true);
+}
+
+function makeMA(name, closes, win) {
+  const data = closes.map((_, i) => {
+    if (i < win - 1) return "-";
+    let s = 0;
+    for (let k = 0; k < win; k++) {
+      const value = Number(closes[i - k]);
+      if (!Number.isFinite(value)) return "-";
+      s += value;
+    }
+    return +(s / win).toFixed(3);
+  });
+  return { name, type: "line", data, smooth: true, showSymbol: false, lineStyle: { width: 1 } };
+}
+
+// 上下方向键切换结果行 (有结果时才生效, 焦点不在 input/select 上)
+document.addEventListener("keydown", (e) => {
+  if (results.length === 0) return;
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); selectRow(Math.min(results.length - 1, selectedIdx + 1)); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); selectRow(Math.max(0, selectedIdx - 1)); }
+  else if (e.key === "Home") { e.preventDefault(); selectRow(0); }
+  else if (e.key === "End") { e.preventDefault(); selectRow(results.length - 1); }
+});
+
+loadConfig();
+</script>
+</body>
+</html>

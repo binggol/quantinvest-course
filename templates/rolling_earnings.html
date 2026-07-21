@@ -1,0 +1,125 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>滚动业绩调仓 | quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+.wrap{max-width:1180px;margin:0 auto;padding:14px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:13px 15px;margin:12px 0}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.kpi{background:#0b1220;border:1px solid #1e293b;border-radius:8px;padding:10px}.kpi b{font-size:22px;color:#e2e8f0}.kpi span{display:block;color:#94a3b8;font-size:12px;margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px solid #1e293b;padding:6px 8px;text-align:right;vertical-align:top}th{color:#94a3b8;background:#0f172a;position:sticky;top:0}td.l,th.l{text-align:left}.muted{color:#64748b;font-size:12px}.pos{color:#34d399}.neg{color:#f87171}
+.pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;background:#1e293b;color:#cbd5e1}.p300{background:#1d2b4f;color:#bfdbfe}.p500{background:#183626;color:#bbf7d0}.p1000{background:#3a2a12;color:#fde68a}.yes{color:#86efac}.no{color:#fbbf24}
+.tablewrap{max-height:620px;overflow:auto;border:1px solid #1e293b;border-radius:8px}
+.warn{background:#1f1604;border:1px solid #92400e;color:#fcd34d;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.7}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <h1>滚动业绩调仓</h1>
+  <div class="muted">预告取上下限中值，快报和正式报告优先覆盖；未公告股票不直接剔除，用顾问Pro作完整篮子对照。</div>
+  <div class="bar"><button onclick="rebuild()">刷新滚动业绩组合</button><span id="status" class="muted">加载中...</span></div>
+  <div class="warn">中报未完全披露时，“滚动业绩组合”只代表已公告信息的边际变化，不能直接等同最终调仓。更稳的做法是看它与顾问Pro的交集、独有票和解禁风险，再决定是否提前小仓位切入。</div>
+  <div class="grid" id="kpis"></div>
+  <div class="card">
+    <h2>滚动业绩组合 vs 顾问Pro</h2>
+    <div class="muted" id="criteria"></div>
+    <div class="tablewrap"><table><thead><tr>
+      <th>#</th><th class="l">代码</th><th class="l">名称</th><th>指数</th><th>来源</th><th>公告日</th><th>最新扣非增速</th><th>上一季度</th><th>提升</th><th>顾问Pro</th><th class="l">解禁/协转</th><th class="l">摘要</th>
+    </tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>差异清单</h2>
+    <div id="diff" class="muted"></div>
+  </div>
+  <div class="card">
+    <h2>历史回测 <span class="muted">正式财报/快报公告口径，未含历史预告上下限</span></h2>
+    <div id="bt" class="muted">加载中...</div>
+  </div>
+</div>
+<script src="/static/unlock.js"></script>
+<script src="/static/kline_contract.js"></script>
+<script src="/static/money_flow_spark.js"></script>
+<script>
+function pct(x){return x==null?'-':`${x>=0?'+':''}${Number(x).toFixed(1)}%`}
+function pcls(x){return (Number(x)||0)>=0?'pos':'neg'}
+function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function upill(u){const cls=u==='沪深300'?'p300':(u==='中证500'?'p500':'p1000');return `<span class="pill ${cls}">${u||'-'}</span>`}
+function render(d){
+  const r=d.rolling||{}, items=r.items||[], cov=d.coverage||{}, c=d.criteria||{};
+  document.getElementById('status').textContent=`更新 ${d.updated||''} · ${items.length} 只`;
+  const overlap=(r.overlap_codes||[]).length, only=(r.rolling_only_codes||[]).length, advOnly=(r.advisor_only_codes||[]).length;
+  document.getElementById('kpis').innerHTML=[
+    [`${items.length}`,'滚动业绩候选'],
+    [`${overlap}`,'与顾问Pro重合'],
+    [`${only}`,'业绩独有'],
+    [`${advOnly}`,'顾问Pro独有']
+  ].map(x=>`<div class="kpi"><b>${x[0]}</b><span>${x[1]}</span></div>`).join('');
+  document.getElementById('criteria').textContent=`条件: 扣非增速>${c.min_dedt_yoy||20}%, 且高于上一季度。来源优先级: ${(c.source_priority||[]).join(' > ')}`;
+  const flowBadge=x=>{
+    const m=(x&&x.money_outflow)||{};
+    if(!m.status||m.status==="none")return "";
+    const flowColor=v=>Number(v)>0?"#22c55e":(Number(v)<0?"#ef4444":"#94a3b8");
+    const label=m.status==="high"?"资金流出前10%":"资金流出前20%";
+    const net15=m.outflow_15d_yi??m.outflow_10d_yi;
+    const mainNet15=m.main_net_15d_yi??m.main_net_10d_yi;
+    const ratio15=m.main_net_15d_ratio_pct??m.main_net_10d_ratio_pct;
+    const daily=m.outflow_15d_daily||m.outflow_10d_daily||[];
+    const net15Text=net15==null?"-":Number(net15).toFixed(2);
+    const days=daily.map(d=>`<span style="color:${flowColor(d.outflow_net_yi)}">${String(d.date||"").slice(5)}:${d.outflow_net_yi==null?"-":Number(d.outflow_net_yi).toFixed(2)}</span>`).join(" / ");
+    const title=`${m.label||label}: 当日净流出${m.outflow_net_yi??"-"}亿, 15日净流出${net15Text}亿, 15日主力净额${mainNet15??"-"}亿, 15日净额/成交额${ratio15??"-"}%, 流出分位${m.outflow_rank_pct??"-"}%, ${m.trade_date||""}`;
+    const spark=window.moneyFlowSparkHtml?moneyFlowSparkHtml(x.code||x.ts_code||x.symbol,m):"";
+    return ` <span title="${esc(title)}" style="display:inline-block;color:${flowColor(net15)};font-size:11px;font-weight:600">15日净流出${net15Text}亿</span><span style="display:block;color:#94a3b8;font-size:10px;line-height:1.35">日:${days||"-"}</span>${spark}`;
+  };
+  document.getElementById('rows').innerHTML=items.map((x,i)=>`<tr>
+    <td>${i+1}</td><td class="l"><a href="/report?code=${encodeURIComponent(x.code)}">${x.code}</a></td><td class="l">${esc(x.name)}${flowBadge(x)}</td>
+    <td>${upill(x.universe)}</td><td>${esc(x.source)}</td><td>${x.ann_date||'-'}</td>
+    <td class="${pcls(x.dedt_yoy)}">${pct(x.dedt_yoy)}</td><td class="${pcls(x.prev_dedt_yoy)}">${pct(x.prev_dedt_yoy)}</td><td class="${pcls(x.delta)}">${pct(x.delta)}</td>
+    <td class="${x.in_advisor_pro?'yes':'no'}">${x.in_advisor_pro?'重合':'独有'}</td><td class="l">${typeof formatUnlockInfo==='function'?formatUnlockInfo(x):''}</td><td class="l">${esc(x.summary||'').slice(0,90)}</td>
+  </tr>`).join('')||'<tr><td colspan="12" class="l muted">暂无符合条件股票</td></tr>';
+  document.getElementById('diff').innerHTML=
+    `<b>业绩组合独有:</b> ${(r.rolling_only_codes||[]).join(', ')||'无'}<br>`+
+    `<b>顾问Pro独有:</b> ${(r.advisor_only_codes||[]).join(', ')||'无'}<br>`+
+    `<b>披露覆盖:</b> ${Object.values(cov).map(x=>`${x.label}:${x.announced}`).join(' / ')}`;
+}
+async function load(){
+  try{const d=await (await fetch('/api/rolling_earnings')).json();render(d)}catch(e){document.getElementById('status').textContent='加载失败'}
+  loadBacktest();
+}
+async function rebuild(){
+  document.getElementById('status').textContent='重算中...';
+  try{const d=await (await fetch('/api/rolling_earnings/rebuild',{method:'POST'})).json();render(d)}catch(e){document.getElementById('status').textContent='重算失败'}
+}
+function btTable(title, summary){
+  const hs=['5','10','20','60'];
+  return `<h3>${title}</h3><table><thead><tr><th>持有期</th><th>样本</th><th>平均收益</th><th>中位数</th><th>胜率</th><th>年化折算</th><th>夏普</th></tr></thead><tbody>`
+    +hs.map(h=>{const s=(summary||{})[h]||{};return `<tr><td>${h}日</td><td>${s.n||0}</td><td class="${pcls(s.mean_pct)}">${pct(s.mean_pct)}</td><td class="${pcls(s.median_pct)}">${pct(s.median_pct)}</td><td>${s.win_rate_pct==null?'-':s.win_rate_pct+'%'}</td><td class="${pcls(s.ann_pct)}">${pct(s.ann_pct)}</td><td>${s.sharpe??'-'}</td></tr>`}).join('')
+    +'</tbody></table>';
+}
+async function loadBacktest(){
+  const box=document.getElementById('bt');
+  try{
+    const d=await (await fetch('/api/rolling_earnings/backtest')).json();
+    if(!d.summary){box.textContent=d.message||'暂无回测';return}
+    const timed=d.timed||{};
+    const mc=d.announcement_time_match_counts||{};
+    const ysrc=timed.by_year||d.by_year||{};
+    const yrs=Object.keys(ysrc).sort();
+    box.innerHTML=`<div class="muted">${esc(d.method||'')}<br>保守样本 ${d.n_events||0} 条；巨潮时间样本 ${timed.n_events||0} 条；公告时间匹配：同日 ${mc.same||0}，相邻日 ${mc.nearby||0}，缺失 ${mc.missing||0}。</div>`
+      +btTable('保守口径：公告日后下一个交易日开盘',d.summary)
+      +btTable('巨潮时间口径：盘中当日/收盘后次日',timed.summary||{})
+      +'<h3>巨潮时间口径 · 分年度10日收益</h3><table><thead><tr><th>年份</th><th>样本</th><th>平均收益</th><th>中位数</th><th>胜率</th><th>夏普</th></tr></thead><tbody>'
+      +yrs.map(y=>{const s=((ysrc[y]||{})['10'])||{};return `<tr><td>${y}</td><td>${s.n||0}</td><td class="${pcls(s.mean_pct)}">${pct(s.mean_pct)}</td><td class="${pcls(s.median_pct)}">${pct(s.median_pct)}</td><td>${s.win_rate_pct==null?'-':s.win_rate_pct+'%'}</td><td>${s.sharpe??'-'}</td></tr>`}).join('')
+      +'</tbody></table><div class="muted">解读：5/10日更稳定，20/60日均值正但胜率接近50%，更像公告后短期漂移，不适合无脑长期持有。</div>';
+  }catch(e){box.textContent='回测加载失败'}
+}
+load();
+</script>
+</body>
+</html>
+

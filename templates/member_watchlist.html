@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>自选资料 · QuantInvest</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}">
+</head>
+<body class="member-shell">
+  <header class="member-head">
+    <div class="brand-row"><h1>QuantInvest 数据服务</h1></div>
+    {% include "_nav.html" %}
+  </header>
+  <main class="member-main">
+    <div class="page-title"><h2>自选资料</h2><div id="watch-summary" class="muted">正在加载</div></div>
+    <div class="watch-toolbar" role="search">
+      <div class="market-search">
+        <label for="watch-query">添加股票</label>
+        <input id="watch-query" type="search" autocomplete="off" placeholder="代码、名称或拼音首字母">
+        <div id="watch-suggestions" class="market-suggestions" hidden></div>
+      </div>
+    </div>
+    <div class="member-watch-layout">
+      <section class="member-table-wrap" aria-label="自选股票">
+        <table class="member-data-table">
+          <thead><tr><th>股票</th><th>行业</th><th>数据日</th><th class="number">收盘</th><th class="number">涨跌幅</th><th><span class="sr-only">操作</span></th></tr></thead>
+          <tbody id="watch-rows"></tbody>
+        </table>
+        <div id="watch-empty" class="table-empty" hidden>暂无自选股票</div>
+      </section>
+      <section class="fundamental-detail" aria-live="polite">
+        <div class="fundamental-head"><h3 id="fundamental-title">基本面资料</h3><span id="fundamental-date" class="muted"></span></div>
+        <div id="fundamental-content" class="table-empty">从左侧选择股票</div>
+      </section>
+    </div>
+  </main>
+<script>
+(() => {
+  "use strict";
+  const rowsBody = document.getElementById("watch-rows");
+  const empty = document.getElementById("watch-empty");
+  const summary = document.getElementById("watch-summary");
+  const query = document.getElementById("watch-query");
+  const suggestions = document.getElementById("watch-suggestions");
+  const detail = document.getElementById("fundamental-content");
+  const detailTitle = document.getElementById("fundamental-title");
+  const detailDate = document.getElementById("fundamental-date");
+  let searchTimer = null;
+  let selectedCode = "";
+  let watchItems = [];
+  let fundamentals = new Map();
+  let fundamentalsError = "";
+  let searchRequestNo = 0;
+
+  const asArray = value => Array.isArray(value) ? value : [];
+
+  async function jsonFetch(url, options) {
+    const response = await fetch(url, options);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || body.message || `HTTP ${response.status}`);
+    return body;
+  }
+
+  function percent(value) {
+    if (value === null || value === undefined || value === "") return "-";
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "-";
+    return `${number > 0 ? "+" : ""}${number.toFixed(2)}%`;
+  }
+
+  function renderDetail(item) {
+    selectedCode = item.code;
+    detailTitle.textContent = `${item.name || item.code} · 基本面资料`;
+    const record = fundamentals.get(item.code);
+    detailDate.textContent = record && record.asOf ? `数据 ${record.asOf}` : "";
+    if (!record || !asArray(record.rows).length) {
+      detail.className = "table-empty";
+      detail.textContent = fundamentalsError || "暂无可用基本面数据";
+      return;
+    }
+    const table = document.createElement("table");
+    table.className = "member-data-table compact";
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["报告期", "营收同比", "扣非净利同比", "毛利率", "ROE"].forEach(label => {
+      const th = document.createElement("th"); th.textContent = label; headRow.appendChild(th);
+    });
+    head.appendChild(headRow);
+    const body = document.createElement("tbody");
+    asArray(record.rows).forEach(row => {
+      row = row || {};
+      const tr = document.createElement("tr");
+      [row.period || row.end || "-", percent(row.rev_yoy), percent(row.dedt_yoy), percent(row.gm), percent(row.roe)].forEach((value, index) => {
+        const td = document.createElement("td");
+        td.textContent = value;
+        if (index) td.className = "number";
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    table.append(head, body);
+    detail.className = "member-table-wrap";
+    detail.replaceChildren(table);
+  }
+
+  function renderRows() {
+    const fragment = document.createDocumentFragment();
+    watchItems.forEach(item => {
+      const tr = document.createElement("tr");
+      tr.classList.toggle("selected", item.code === selectedCode);
+      const stockCell = document.createElement("td");
+      const stockButton = document.createElement("button");
+      stockButton.type = "button";
+      stockButton.className = "table-link";
+      stockButton.textContent = item.name || item.code;
+      stockButton.addEventListener("click", () => { renderDetail(item); renderRows(); });
+      const code = document.createElement("small"); code.textContent = item.ts_code || item.code;
+      stockCell.append(stockButton, code);
+      const industry = document.createElement("td"); industry.textContent = item.industry || "-";
+      const date = document.createElement("td"); date.textContent = item.date || "-";
+      const close = document.createElement("td"); close.className = "number"; close.textContent = item.last ?? "-";
+      const change = document.createElement("td");
+      change.className = `number ${Number(item.chg || 0) > 0 ? "value-up" : Number(item.chg || 0) < 0 ? "value-down" : ""}`;
+      change.textContent = percent(item.chg);
+      const actions = document.createElement("td"); actions.className = "row-actions";
+      const chartLink = document.createElement("a"); chartLink.href = `/?code=${encodeURIComponent(item.code)}`; chartLink.textContent = "K线";
+      const remove = document.createElement("button"); remove.type = "button"; remove.title = "移出自选"; remove.setAttribute("aria-label", `移出自选 ${item.name || item.code}`); remove.textContent = "×";
+      remove.addEventListener("click", () => removeItem(item.code));
+      actions.append(chartLink, remove);
+      tr.append(stockCell, industry, date, close, change, actions);
+      fragment.appendChild(tr);
+    });
+    rowsBody.replaceChildren(fragment);
+    empty.hidden = watchItems.length > 0;
+    empty.textContent = "暂无自选股票";
+    summary.textContent = `${watchItems.length} 只股票`;
+  }
+
+  async function loadData(preferredCode) {
+    try {
+      const [watchResult, financialResult] = await Promise.allSettled([
+        jsonFetch("/api/watchlist"), jsonFetch("/api/watchlist/fundamentals")
+      ]);
+      if (watchResult.status === "rejected") throw watchResult.reason;
+      const watch = watchResult.value || {};
+      const financial = financialResult.status === "fulfilled" ? (financialResult.value || {}) : {};
+      watchItems = asArray(watch.items).filter(item => item && item.code);
+      fundamentalsError = financialResult.status === "rejected" ? `基本面加载失败：${financialResult.reason.message}` : "";
+      fundamentals = new Map(asArray(financial.items).filter(item => item && item.code).map(item => [item.code, {
+        rows: asArray(item.rows), asOf: financial.as_of || ""
+      }]));
+      const next = watchItems.find(item => item.code === (preferredCode || selectedCode)) || watchItems[0];
+      if (next) renderDetail(next);
+      else {
+        selectedCode = "";
+        detailTitle.textContent = "基本面资料";
+        detailDate.textContent = "";
+        detail.className = "table-empty";
+        detail.textContent = "从左侧选择股票";
+      }
+      renderRows();
+      if (fundamentalsError) summary.textContent += " · 基本面暂不可用";
+    } catch (error) {
+      watchItems = [];
+      fundamentals = new Map();
+      rowsBody.replaceChildren();
+      empty.hidden = false;
+      empty.textContent = "自选资料加载失败，请稍后重试";
+      summary.textContent = `加载失败：${error.message}`;
+      detail.className = "table-empty";
+      detail.textContent = "暂时无法加载基本面资料";
+    }
+  }
+
+  async function mutate(url, code) {
+    await jsonFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+  }
+
+  async function addItem(hit) {
+    if (!hit || !hit.code) return;
+    suggestions.hidden = true;
+    query.value = "";
+    await mutate("/api/watchlist/add", hit.code);
+    await loadData(hit.code);
+  }
+
+  async function removeItem(code) {
+    try {
+      await mutate("/api/watchlist/remove", code);
+      await loadData();
+    } catch (error) {
+      summary.textContent = `操作失败：${error.message}`;
+    }
+  }
+
+  async function searchStocks() {
+    const text = query.value.trim();
+    const ownRequest = ++searchRequestNo;
+    if (!text) { suggestions.hidden = true; suggestions.replaceChildren(); return; }
+    try {
+      const data = await jsonFetch(`/api/search?q=${encodeURIComponent(text)}`);
+      if (ownRequest !== searchRequestNo) return;
+      const hits = asArray(data.hits);
+      const fragment = document.createDocumentFragment();
+      hits.slice(0, 10).forEach(hit => {
+        if (!hit || !hit.code) return;
+        const button = document.createElement("button"); button.type = "button";
+        const title = document.createElement("b"); title.textContent = hit.name || hit.code;
+        const detailText = document.createElement("span"); detailText.textContent = `${hit.code}${hit.industry ? ` · ${hit.industry}` : ""}`;
+        button.append(title, detailText);
+        button.addEventListener("click", () => addItem(hit).catch(error => { summary.textContent = `操作失败：${error.message}`; }));
+        fragment.appendChild(button);
+      });
+      suggestions.replaceChildren(fragment);
+      suggestions.hidden = !hits.length;
+    } catch (error) {
+      if (ownRequest !== searchRequestNo) return;
+      const message = document.createElement("div");
+      message.className = "suggestion-status";
+      message.textContent = `搜索失败：${error.message}`;
+      suggestions.replaceChildren(message);
+      suggestions.hidden = false;
+    }
+  }
+
+  query.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(searchStocks, 180); });
+  query.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const first = suggestions.querySelector("button");
+      if (first) first.click();
+    }
+  });
+  loadData();
+})();
+</script>
+</body>
+</html>

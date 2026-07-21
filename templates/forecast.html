@@ -1,0 +1,300 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>财务预测 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1400px;margin:0 auto;padding:16px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  #code{background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;padding:7px 11px;border-radius:8px;font-size:14px;width:230px}
+  select,button{background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;padding:6px 10px;border-radius:8px;font-size:13px;cursor:pointer}
+  button.act{background:#1d4ed8;border:none}
+  button.save{background:#166534;border:none}
+  #st{color:#94a3b8;font-size:12px}
+  .hd{font-size:20px;font-weight:700}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 15px;margin:12px 0}
+  h2.sec{font-size:15px;margin:2px 0 10px;color:#60a5fa}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid #1e293b;padding:4px 8px;text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}th{background:#111827;color:#94a3b8}
+  td.hcol{color:#64748b}th.hcol{color:#475569}
+  .neg{color:#f87171}.pos{color:#34d399}.dim{color:#475569}
+  tr.tot td{font-weight:700;background:#0c1322}
+  .grid input{width:74px;background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:3px 5px;text-align:right;font-size:12px}
+  .as-grp{margin:6px 0}
+  .as-grp summary{cursor:pointer;color:#93c5fd;font-size:13px;font-weight:600;padding:4px 0}
+  .as-flow{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0 2px}
+  .as-item{display:flex;flex-direction:column;font-size:11px;color:#94a3b8}
+  .as-item input{width:88px;background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:4px 6px;text-align:right;font-size:12px;margin-top:2px}
+  .as-item .def{color:#475569;font-size:10px;margin-top:1px}
+  .hist{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+  .hist .lbl{color:#64748b;font-size:12px;align-self:center}
+  .chip{background:#0b1220;border:1px solid #1e293b;color:#cbd5e1;padding:4px 10px;border-radius:14px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+  .chip:hover{border-color:#3b82f6;color:#e2e8f0}.chip small{color:#64748b;margin-left:4px}
+  .acwrap{position:relative;display:inline-block}
+  .ac{position:absolute;top:36px;left:0;z-index:40;background:#0b1220;border:1px solid #1e293b;border-radius:8px;min-width:240px;max-height:320px;overflow:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .ac div{padding:6px 11px;cursor:pointer;font-size:13px;color:#cbd5e1}.ac div:hover,.ac div.sel{background:#1e293b;color:#fff}.ac small{color:#64748b;margin-left:6px}
+  .chk{font-size:12.5px;padding:6px 9px;border-radius:6px;margin-top:6px}
+  .chk.ok{background:#0c1f1a;color:#5eead4}.chk.bad{background:#2a1418;color:#fca5a5}
+  .val{display:flex;gap:22px;flex-wrap:wrap;font-size:13px;color:#cbd5e1}.val b{color:#e2e8f0;font-size:15px}
+  .muted{color:#64748b;font-size:12px}
+  .two{display:flex;gap:14px;flex-wrap:wrap}.two>div{flex:1;min-width:420px}
+  .riskbox{background:#111827;border:1px solid #334155;border-radius:10px;padding:10px 12px;margin:10px 0;color:#cbd5e1;font-size:12.5px;line-height:1.7}
+  .riskpill{display:inline-block;padding:2px 8px;border-radius:999px;background:#1e293b;color:#cbd5e1;margin-right:6px}
+  .riskpill.high{background:#3f1d1d;color:#fca5a5}.riskpill.watch{background:#3b2f12;color:#fbbf24}.riskpill.none,.riskpill.low{background:#10251f;color:#86efac}
+  @media(max-width:700px){.wrap{padding:10px}.card{overflow-x:auto}.two>div{min-width:0;flex-basis:100%}.bar>*{max-width:100%}#code{width:min(100%,230px)}}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>复刻三表联动 DCF 模型(原力量钻石)。输代码点「生成基础数据」→ PC 用 tushare 拉 利润表/资产负债表/现金流量表(年报)+主营拆分, 自动按历史推默认假设。<b>在「主营业务构成」里改各产品线的营收增速/毛利率, 在「假设」里改周转天数/资本开支/债务/折现率</b>→ 实时重算未来 利润表/资产负债表/现金流量表 三张表 + DCF 估值, 资产负债表带平衡校验。单位 亿元。数值仅供研究, 自行复核。</div></details>
+  <div class="wrap">
+    <div class="bar">
+      <span class="acwrap"><input id="code" placeholder="代码/简称/首字母 如 301071 · 力量钻石 · llzs" autocomplete="off"/><div id="ac" class="ac"></div></span>
+      <button id="gen" class="act">📊 生成基础数据</button>
+      预测年数 <select id="horizon"><option>3</option><option selected>5</option><option>7</option><option>10</option></select>
+      <button id="save" class="save">💾 保存假设</button>
+      <button id="batchgen" onclick="batchGen('forecast')" title="按策略顾问Pro篮子(买入+持有)批量生成财务预测">📦 一键批量(Pro篮子)</button>
+      <span id="st"></span><span id="bst" style="color:#94a3b8;font-size:13px;margin-left:6px"></span>
+    </div>
+    <div id="histbar" class="hist"></div>
+    <div id="out" class="muted" style="padding:14px">输入代码/简称/首字母 → 生成基础数据。已生成过的显示在上方, 点击即看。</div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script>
+// 假设面板 schema: [key,label,kind]  kind: pct(显示×100), num
+const GROUPS=[
+ ["收入与利润率(费用率,%营收)",[["admin_to_rev","管理费用率","pct"],["rnd_to_rev","研发费用率","pct"],["selling_to_rev","销售费用率","pct"],["growth","总量增长率(无产品线时)","pct"]]],
+ ["税与分红",[["tax_rate","所得税率","pct"],["payout","股利分配率","pct"],["minority_payout","少数股东分红比例","pct"]]],
+ ["营运资本周转",[["ar_days","应收周转天数","num"],["inv_days","存货周转天数","num"],["ap_days","应付周转天数","num"],["prepaid_to_rev","待摊及其他流资/营收","pct"],["other_cl_ratio","其他流负/经营成本","pct"]]],
+ ["资本开支与折旧",[["capex_new","固定资产新建投资(百万)","num"],["cip_to_fixed_ratio","在建转固比例","pct"],["reno_ratio","固定资产改造比率","pct"],["dep_life","折旧年限(年)","num"],["impair_rate","减值准备比率","pct"],["intan_invest","无形资产投资(百万)","num"],["amort_life","无形摊销年限(年)","num"],["other_lt_assets","其他长期资产(百万)","num"]]],
+ ["债务与利率",[["min_cash","最低现金(百万)","num"],["min_revolver","最低循环贷(百万)","num"],["revolver_rate","循环贷利率","pct"],["lt_loan_add","长期借款年增(百万)","num"],["lt_loan_rate","长期借款利率","pct"],["bond_add","债券年增(百万)","num"],["bond_rate","债券利率","pct"],["cash_yield","现金存款利率","pct"],["st_invest","交易性金融资产(百万)","num"],["equity_issuance","股权融资(百万)","num"]]],
+ ["非经常性损益(百万)",[["other_biz_profit","其他业务利润","num"],["impair_fv","减值及公允价值","num"],["nonop","营业外收支","num"],["subsidy","补贴收入","num"],["invest_income","投资收益","num"],["fx","汇兑损益","num"],["asset_disposal","资产处置","num"]]],
+ ["WACC与终值",[["asset_beta","无杠杆Beta","num"],["rf","无风险利率","pct"],["erp","风险溢价","pct"],["kd","债务成本Kd","pct"],["tax_for_wacc","税率T","pct"],["tv_growth","永续增长率","pct"],["price","当前股价","num"],["share_count","总股本(百万股)","num"]]],
+];
+// 三表 行定义: [label, 预测result字段, 历史hist字段(null=无), 类型]  类型: amt(亿元) eps neg(费用,显示负)
+const IS_ROWS=[["营业收入","revenue","revenue","amt"],["销货成本","cogs","cogs","amtneg"],["毛利","gross_profit",null,"amt"],["销售费用","selling","selling","amtneg"],["管理费用","admin","admin","amtneg"],["研发费用","rnd","rnd","amtneg"],["EBITDA","ebitda",null,"amt"],["折旧","dep",null,"amtneg"],["摊销","amort",null,"amtneg"],["EBIT","ebit",null,"amt"],["利息费用","int_exp",null,"amtneg"],["利息收入","int_inc",null,"amt"],["非经常性损益","nonrecurring",null,"amt"],["税前利润","pretax","pretax","amt"],["所得税","tax","tax","amtneg"],["净利润(归母)","net_income","net_income","amt"],["EPS(元)","eps",null,"eps"],["股利","dividend",null,"amt"]];
+const BS_ROWS=[["现金","cash","cash","amt"],["交易性金融资产","st_invest",null,"amt"],["应收款项","ar","ar","amt"],["存货","inventory","inventory","amt"],["待摊及其他流动资产","prepaid",null,"amt"],["流动资产合计","cur_assets","total_cur_assets","amt"],["固定资产净额","ppe_net","ppe_net","amt"],["在建工程","cip","cip","amt"],["无形资产","intangible","intangible","amt"],["长期股权投资","lt_equity",null,"amt"],["其他长期资产","other_lt_assets",null,"amt"],["资产总计","total_assets","total_assets","amt"],["循环贷款","revolver",null,"amt"],["应付款项","ap",null,"amt"],["预提费用","accrued",null,"amt"],["其他流动负债","other_cl",null,"amt"],["流动负债合计","cur_liab",null,"amt"],["长期借款","lt_loan",null,"amt"],["应付债券","bonds",null,"amt"],["其他长期负债","other_lt_liab",null,"amt"],["负债合计","total_liab","total_liab","amt"],["少数股东权益","minority",null,"amt"],["股东权益","equity","equity","amt"],["负债和权益合计","total_le",null,"amt"]];
+const CF_ROWS=[["净利润","net_income",null,"amt"],["折旧摊销","da",null,"amt"],["公允价值变动","fair_value",null,"amt"],["营运资金变动","dWC",null,"amt"],["经营活动现金流","cfo","cfo","amt"],["资本支出","capex","capex","amtneg2"],["无形资产投资","intan_invest",null,"amt"],["投资活动现金流","cfi","cfi","amt"],["股权融资","equity_issue",null,"amt"],["长期借款变动","d_lt_loan",null,"amt"],["股利分配","dividend",null,"amt"],["循环贷款变动","d_revolver",null,"amt"],["筹资活动现金流","cff","cff","amt"],["现金净变动","net_change",null,"amt"],["期末现金","cash_end",null,"amt"]];
+
+let STATE={code:"",base:null,A:{},plines:[],horizon:5,POLL:null};
+const $=id=>document.getElementById(id);
+function fmt(v,kind){
+  if(v===null||v===undefined||(typeof v==="number"&&isNaN(v)))return '<span class="dim">—</span>';
+  if(kind==="eps"){const s=v<0?'neg':'pos';return `<span class="${s}">${v.toFixed(3)}</span>`;}
+  let x=v/100; // 百万->亿
+  if(kind==="amtneg")x=-x; if(kind==="amtneg2")x=-x;
+  const s=x<0?'neg':(x>0?'pos':'dim');
+  return `<span class="${s}">${x.toFixed(2)}</span>`;
+}
+function histVal(stmt,year,hkey){ const h=(STATE.base.hist||{})[stmt]||{}; const row=h[year]; if(!row||hkey===null||row[hkey]===undefined)return null; return row[hkey]; }
+
+function renderTable(title,rows,fkey_arr,resultArr,stmt){
+  const histYears=(STATE.base.hist&&STATE.base.hist.years||[]).slice(-3);
+  const fcYears=resultArr.map(c=>c.year);
+  let h=`<h2 class="sec">${title} <span class="muted">单位 亿元</span></h2><div style="overflow-x:auto"><table><thead><tr><th>项目</th>`;
+  h+=histYears.map(y=>`<th class="hcol">${y}</th>`).join('')+fcYears.map(y=>`<th>${y}</th>`).join('')+`</tr></thead><tbody>`;
+  for(const [label,fk,hk,kind] of rows){
+    const tot=/合计|总计|净利润\(归母\)|EBIT$|经营活动现金流/.test(label)?' class="tot"':'';
+    h+=`<tr${tot}><td>${label}</td>`;
+    h+=histYears.map(y=>`<td class="hcol">${fmt(histVal(stmt,y,hk),kind)}</td>`).join('');
+    h+=resultArr.map(c=>`<td>${fmt(c[fk],kind)}</td>`).join('');
+    h+='</tr>';
+  }
+  h+='</tbody></table></div>';
+  return h;
+}
+
+function renderProductGrid(){
+  const pls=STATE.plines||[];
+  if(!pls.length)return '<div class="muted">无主营拆分数据(tushare 未返回), 用总量增长率(假设面板)。</div>';
+  let h='<table><thead><tr><th>产品线</th><th>基期营收(亿)</th><th>营收增速%</th><th>毛利率%</th><th></th></tr></thead><tbody>';
+  pls.forEach((p,i)=>{
+    const g=Array.isArray(p.growth)?p.growth[0]:p.growth, gm=Array.isArray(p.gross_margin)?p.gross_margin[0]:p.gross_margin;
+    h+=`<tr><td><input data-pl="${i}" data-f="name" value="${(p.name||'').replace(/"/g,'')}" style="width:130px;text-align:left"/></td>`+
+       `<td><input data-pl="${i}" data-f="base_rev" value="${((p.base_rev||0)/100).toFixed(2)}"/></td>`+
+       `<td><input data-pl="${i}" data-f="growth" value="${((g||0)*100).toFixed(1)}"/></td>`+
+       `<td><input data-pl="${i}" data-f="gross_margin" value="${((gm||0)*100).toFixed(1)}"/></td>`+
+       `<td><button data-del="${i}" style="padding:2px 7px">✕</button></td></tr>`;
+  });
+  h+='</tbody></table><div style="margin-top:6px"><button id="addpl" style="padding:3px 10px">+ 添加产品线</button> <span class="muted">营收=Σ各产品线; 销货成本由各线毛利率推算</span></div>';
+  return h;
+}
+
+function renderAssumptions(){
+  let h='';
+  for(const [gname,fields] of GROUPS){
+    h+=`<details class="as-grp"${/收入|营运|资本/.test(gname)?' open':''}><summary>${gname}</summary><div class="as-flow">`;
+    for(const [k,label,kind] of fields){
+      let v=STATE.A[k]; if(Array.isArray(v))v=v[0];
+      const disp=(kind==="pct")?((v||0)*100).toFixed(2):(v??0);
+      const dv=STATE.base.assumptions_default[k]; const dvd=Array.isArray(dv)?dv[0]:dv;
+      const dispd=(kind==="pct")?((dvd||0)*100).toFixed(2):dvd;
+      h+=`<label class="as-item">${label}<input data-as="${k}" data-kind="${kind}" value="${disp}"/><span class="def">默认 ${dispd}${kind==="pct"?'%':''}</span></label>`;
+    }
+    h+='</div></details>';
+  }
+  return h;
+}
+function riskLabel(s){return ({high:"高风险",watch:"观察",low:"低风险",none:"无明显"})[s]||s||"—";}
+function riskItems(a){return (a||[]).slice(0,4).map(x=>{
+  const px=x.issue_price?` 发行价${x.issue_price}`:"";
+  const cp=x.current_price?` 现价${x.current_price}`:"";
+  const gap=x.price_gap_pct!=null?` 跌破幅度${x.price_gap_pct}%`:"";
+  const motive=x.support_motive==="strong"?" 补价/护价动机强":"";
+  return `<div>· ${(x.date||x.ann_date||x.list_date||"")} ${x.title||x.name||x.reason||x.event||""}${px}${cp}${gap}${motive}</div>`;
+}).join("")||'<div class="muted">暂无本地缓存记录</div>';}
+function renderExternalOverride(o){
+  if(!o||(!o.product_lines&&!o.sources&&!o.notes))return "";
+  const lines=o.product_lines||[];
+  let h='<div class="card" style="border-color:#25637f"><h2 class="sec">外部信息覆盖层 <span class="muted">巨潮/调研纪要/研报驱动假设</span></h2>';
+  if(o.updated)h+=`<div class="muted">更新 ${o.updated}${o.confidence?` · 置信度 ${o.confidence}`:""}</div>`;
+  if(lines.length){
+    h+='<table><thead><tr><th>业务板块</th><th>收入增速</th><th>毛利率</th><th>依据</th></tr></thead><tbody>';
+    h+=lines.map(x=>`<tr><td>${x.name||""}</td><td>${x.growth==null?'-':(Number(x.growth)*100).toFixed(1)+'%'}</td><td>${x.gross_margin==null?'-':(Number(x.gross_margin)*100).toFixed(1)+'%'}</td><td style="text-align:left;white-space:normal">${x.reason||""}</td></tr>`).join("");
+    h+='</tbody></table>';
+  }
+  if(o.sources&&o.sources.length){
+    h+='<div class="muted" style="margin-top:8px">来源：'+o.sources.map(s=>s.url?`<a href="${s.url}" target="_blank" style="color:#7dd3fc">${s.title||s.type||"来源"}</a>`:(s.title||s.type||"来源")).join("　")+'</div>';
+  }
+  if(o.notes)h+=`<div class="muted" style="margin-top:6px">${o.notes}</div>`;
+  return h+'</div>';
+}
+
+async function loadEventRisk(code,industry){
+  const box=$("event-risk"); if(!box||!code)return;
+  try{
+    const d=await (await fetch(`/api/event_risk?code=${encodeURIComponent(code)}&industry=${encodeURIComponent(industry||"")}`)).json();
+    box.innerHTML=`<div><b>事件风险核查</b>　结论：<span class="riskpill ${d.placement.status}">${d.summary.decision}</span><span class="muted">${d.summary.note}</span></div>`+
+      `<div><span class="riskpill ${d.placement.status}">定增 ${riskLabel(d.placement.status)}</span><span class="riskpill ${d.company_negative.status}">公司负面 ${riskLabel(d.company_negative.status)}</span><span class="riskpill ${d.industry_negative.status}">行业负面 ${riskLabel(d.industry_negative.status)}</span></div>`+
+      `<details><summary>定增/发行价/补价动机</summary>${riskItems(d.placement.items)}</details>`+
+      `<details><summary>公司负面</summary>${riskItems(d.company_negative.items)}</details>`+
+      `<details><summary>行业负面</summary>${riskItems(d.industry_negative.items)}</details>`;
+  }catch(e){box.innerHTML='<span class="neg">事件风险核查加载失败</span>';}
+}
+
+function render(d){
+  STATE.base=d; STATE.A=Object.assign({},d.assumptions); STATE.plines=d.product_lines||[]; STATE.horizon=d.horizon||5;
+  $("horizon").value=String(STATE.horizon);
+  let h=`<div class="hd">${d.name} <span class="muted">${d.code} · 基期 ${d.base_year} · 数据更新 ${d.updated||''}${d.edited?(' · 你的编辑 '+d.edited):''}</span></div>`;
+  h+='<div id="event-risk" class="riskbox">事件风险核查加载中…</div>';
+  h+=renderExternalOverride(d.external_override);
+  h+='<div class="card"><h2 class="sec">主营业务构成(可编辑驱动收入)</h2><div id="plgrid">'+renderProductGrid()+'</div></div>';
+  h+='<div class="card"><h2 class="sec">预测假设(改任意值即实时重算)</h2><div id="asbox">'+renderAssumptions()+'</div></div>';
+  h+='<div id="vbox" class="card"></div>';
+  h+='<div id="isbox" class="card"></div>';
+  h+='<div id="bsbox" class="card"></div>';
+  h+='<div id="cfbox" class="card"></div>';
+  h+='<div class="note muted" style="background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px">⚠️ tushare 历史数据客观, 预测取决于你的假设; DCF 为标准 FCFF 法(Gordon 终值), 仅供研究, 务必自行复核。</div>';
+  $("out").innerHTML=h;
+  wireInputs();
+  recalc();
+  loadEventRisk(d.code,d.industry||d.l3||"");
+}
+
+function renderResult(R){
+  if(!R){$("vbox").innerHTML='<span class="neg">计算失败</span>';return;}
+  $("isbox").innerHTML=renderTable("利润表",IS_ROWS,null,R.income,"income");
+  $("bsbox").innerHTML=renderTable("资产负债表",BS_ROWS,null,R.balance,"balance");
+  // 平衡校验
+  let chk='<div style="margin-top:8px">';
+  R.checks.forEach(c=>{const ok=c.balanced;chk+=`<span class="chk ${ok?'ok':'bad'}" style="display:inline-block;margin:2px 4px 0 0">${c.year} ${ok?'✓平衡':('✗差'+(c.residual/100).toFixed(2)+'亿')}</span>`;});
+  chk+='</div>'; $("bsbox").innerHTML+=chk;
+  $("cfbox").innerHTML=renderTable("现金流量表",CF_ROWS,null,R.cashflow,"cashflow");
+  const v=R.valuation;
+  $("vbox").innerHTML='<h2 class="sec">DCF 估值(FCFF 法)</h2><div class="val">'+
+    `<div>每股价值 <b class="${(v.per_share||0)>(v.price||0)?'pos':'neg'}">${v.per_share?v.per_share.toFixed(2):'—'}</b> 元</div>`+
+    `<div>当前股价 <b>${v.price?v.price.toFixed(2):'—'}</b></div>`+
+    `<div>WACC <b>${(v.wacc*100).toFixed(2)}%</b></div>`+
+    `<div>Ke <b>${(v.ke*100).toFixed(2)}%</b></div>`+
+    `<div>企业价值 <b>${(v.ev/100).toFixed(1)}</b>亿</div>`+
+    `<div>股权价值 <b>${(v.equity_value/100).toFixed(1)}</b>亿</div>`+
+    (R.meta&&!R.meta.converged?'<div class="neg">⚠️ 债务未收敛</div>':'')+'</div>';
+}
+
+let RECT=null;
+function scheduleRecalc(){clearTimeout(RECT);RECT=setTimeout(recalc,400);}
+async function recalc(){
+  if(!STATE.base)return;
+  try{
+    const r=await (await fetch("/api/forecast/recompute",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({code:STATE.code,assumptions:STATE.A,product_lines:STATE.plines,horizon:STATE.horizon})})).json();
+    if(r.ok)renderResult(r); else $("vbox").innerHTML='<span class="neg">'+(r.message||'计算失败')+'</span>';
+  }catch(e){}
+}
+
+function wireInputs(){
+  // 产品线
+  document.querySelectorAll('#plgrid input').forEach(el=>el.oninput=()=>{
+    const i=+el.dataset.pl,f=el.dataset.f; let v=el.value;
+    if(f==="name")STATE.plines[i].name=v;
+    else if(f==="base_rev")STATE.plines[i].base_rev=parseFloat(v||0)*100;
+    else if(f==="growth")STATE.plines[i].growth=parseFloat(v||0)/100;
+    else if(f==="gross_margin")STATE.plines[i].gross_margin=parseFloat(v||0)/100;
+    scheduleRecalc();
+  });
+  document.querySelectorAll('#plgrid [data-del]').forEach(b=>b.onclick=()=>{STATE.plines.splice(+b.dataset.del,1);$("plgrid").innerHTML=renderProductGrid();wireInputs();scheduleRecalc();});
+  const add=$("addpl"); if(add)add.onclick=()=>{STATE.plines.push({name:"新产品线",base_rev:0,growth:0,gross_margin:0.3});$("plgrid").innerHTML=renderProductGrid();wireInputs();scheduleRecalc();};
+  // 假设
+  document.querySelectorAll('#asbox input').forEach(el=>el.oninput=()=>{
+    const k=el.dataset.as,kind=el.dataset.kind; let v=parseFloat(el.value||0);
+    STATE.A[k]=(kind==="pct")?v/100:v; scheduleRecalc();
+  });
+}
+
+// ---------- 生成/加载/历史/补全 ----------
+async function load(code){
+  const c=(code||$("code").value||"").trim(); if(!c)return;
+  let d; try{ d=await (await fetch("/api/forecast?code="+encodeURIComponent(c))).json(); }catch(e){return;}
+  STATE.code=d.c6||c;
+  if(d.found){ if(STATE.POLL){clearInterval(STATE.POLL);STATE.POLL=null;} try{localStorage.removeItem('qi_forecast_pending');}catch(e){} $("st").textContent="数据更新 "+(d.updated||""); render(d); }
+  else if(d.pending){ $("out").innerHTML='<div class="muted" style="padding:14px">'+(d.status||"⏳ 拉取中…")+' 自动刷新…</div>'; }
+  else if(d.unsupported){ $("out").innerHTML='<div class="muted" style="padding:14px">⚠️ '+(d.message||"不支持")+'</div>'; }
+  else { $("out").innerHTML='<div class="muted" style="padding:14px">'+(d.message||"无数据")+'</div>'; }
+}
+function go(code){$("code").value=code;hideAc();load(code);window.scrollTo(0,0);}
+function isCode(q){return /^(sh|sz|bj)?[0-9]{6}$/i.test((q||"").trim());}
+async function resolveCode(q){q=(q||"").trim();if(!q||isCode(q))return q;try{const r=await (await fetch("/api/search?q="+encodeURIComponent(q))).json();if(r.hits&&r.hits.length)return r.hits[0].code;}catch(e){}return q;}
+$("gen").onclick=async()=>{
+  let c=($("code").value||"").trim(); if(!c)return; c=await resolveCode(c); $("code").value=c; hideAc(); STATE.code=c;
+  $("st").textContent="已通知PC拉取(约30-60秒)…";
+  try{ const r=await (await fetch("/api/forecast/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:c})})).json(); $("st").textContent=r.message||""; }catch(e){}
+  try{localStorage.setItem('qi_forecast_pending',c);}catch(e){}  // 记住在途任务, 切走切回可恢复
+  if(STATE.POLL)clearInterval(STATE.POLL); STATE.POLL=setInterval(()=>{load(c);loadHist();},6000); setTimeout(()=>load(c),3000);
+};
+$("horizon").onchange=()=>{STATE.horizon=parseInt($("horizon").value);scheduleRecalc();};
+$("save").onclick=async()=>{
+  if(!STATE.code||!STATE.base)return; $("st").textContent="保存中…";
+  try{ const r=await (await fetch("/api/forecast/save",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({code:STATE.code,assumptions:STATE.A,product_lines:STATE.plines,horizon:STATE.horizon})})).json();
+    $("st").textContent=r.message||""; }catch(e){$("st").textContent="保存失败";}
+};
+async function loadHist(){
+  try{ const r=await (await fetch("/api/forecast/list")).json(); const box=$("histbar"); const its=r.items||[];
+    if(!its.length){box.innerHTML="";return;}
+    box.innerHTML='<span class="lbl">已生成:</span>'+its.map(it=>`<span class="chip" onclick="go('${it.code||it.c6}')" title="${it.c6} · ${it.updated||''}">${(it.name||it.c6).replace(/</g,'&lt;')}<small>${it.c6}</small></span>`).join('');
+  }catch(e){}
+}
+let AC=[],ACi=-1,ACt=null;
+function hideAc(){const a=$("ac");if(a){a.style.display="none";}AC=[];ACi=-1;}
+function renderAc(){const a=$("ac");if(!AC.length){hideAc();return;}a.innerHTML=AC.map((h,i)=>`<div class="${i===ACi?'sel':''}" data-i="${i}">${(h.name||'').replace(/</g,'&lt;')} <small>${h.code} · ${h.industry||''}</small></div>`).join('');a.style.display="block";a.querySelectorAll("div").forEach(d=>d.onclick=()=>go(AC[+d.dataset.i].code));}
+async function doAc(q){q=(q||"").trim();if(!q||isCode(q)){hideAc();return;}try{const r=await (await fetch("/api/search?q="+encodeURIComponent(q))).json();AC=(r.hits||[]).slice(0,12);ACi=AC.length?0:-1;renderAc();}catch(e){hideAc();}}
+const codeEl=$("code");
+codeEl.addEventListener("input",()=>{clearTimeout(ACt);ACt=setTimeout(()=>doAc(codeEl.value),180);});
+codeEl.addEventListener("keydown",e=>{const open=$("ac").style.display==="block";if(e.key==="ArrowDown"&&open){e.preventDefault();ACi=Math.min(ACi+1,AC.length-1);renderAc();}else if(e.key==="ArrowUp"&&open){e.preventDefault();ACi=Math.max(ACi-1,0);renderAc();}else if(e.key==="Enter"){if(open&&ACi>=0&&AC[ACi]){e.preventDefault();go(AC[ACi].code);}else{resolveCode(codeEl.value).then(c=>{hideAc();load(c);});}}else if(e.key==="Escape"){hideAc();}});
+document.addEventListener("click",e=>{if(!e.target.closest(".acwrap"))hideAc();});
+loadHist();
+// 跨页面切换/刷新后, 若上次有单只盈利预测仍在生成(localStorage记录), 自动恢复轮询 (最多~2分钟, 完成或超时即清除)
+(function resumeForecastPending(){
+  let c=null; try{ c=localStorage.getItem('qi_forecast_pending'); }catch(e){}
+  if(!c) return;
+  $("code").value=c; $("st").textContent="⏳ 上次盈利预测仍在生成, 恢复中…";
+  let n=0; if(STATE.POLL)clearInterval(STATE.POLL);
+  STATE.POLL=setInterval(()=>{ n++; load(c); loadHist(); if(n>20){ if(STATE.POLL)clearInterval(STATE.POLL); STATE.POLL=null; try{localStorage.removeItem('qi_forecast_pending');}catch(e){} } },6000);
+  setTimeout(()=>load(c),500);
+})();
+</script>
+</body>
+</html>

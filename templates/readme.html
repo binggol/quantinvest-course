@@ -1,0 +1,127 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>使用手册 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:23px;font-weight:800;margin:6px 0 4px}
+  .sub{color:#94a3b8;font-size:13px;margin-bottom:14px}
+  .sec{font-size:17px;font-weight:700;color:#e2e8f0;margin:22px 0 8px;border-left:4px solid #3b82f6;padding-left:9px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:12px;line-height:1.85;font-size:13.5px;color:#cbd5e1}
+  .card a{color:#60a5fa;text-decoration:none}
+  .green{background:#0d1a14;border-color:#1f3a2a}
+  .red{background:#1c0d0d;border-color:#7f1d1d}
+  .amber{background:#1a160d;border-color:#854d0e}
+  table{border-collapse:collapse;width:100%;font-size:12.8px;margin:4px 0}
+  th,td{border-bottom:1px solid #1e293b;padding:6px 9px;text-align:left;vertical-align:top}
+  th{color:#94a3b8;font-weight:600}
+  td.p{color:#86efac;white-space:nowrap;font-weight:600}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:7px;margin-left:5px}
+  .live{background:#14532d;color:#86efac}.dead{background:#3f1d1d;color:#fca5a5}
+  .step{color:#7dd3fc;font-weight:700}
+  h4{margin:12px 0 4px;color:#cbd5e1;font-size:14px}
+  ol,ul{margin:4px 0 4px 4px;padding-left:18px}
+  li{margin:3px 0}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div class="hd">📖 quantinvest 使用手册</div>
+    <div class="sub">A股量化平台总览 · 每天怎么用 + 各页速查 + 哪些策略真能赚/哪些已证伪。点蓝色链接直达页面。</div>
+
+    <div class="sec">一、核心理念(先懂这个)</div>
+    <div class="card green">
+      <b style="color:#86efac">A股能稳定赚的只有四类,其余大半证伪:</b>
+      <ol>
+        <li><b>避雷</b> — 剔除"市场还没反应的隐患"(造假DSRI/毛利恶化/热榜透支), 不是人人皆知的明雷(商誉/质押=已price-in)。</li>
+        <li><b>事件腿</b> — 有催化剂、可重复: 业绩抢跑、回购、纳入、海力士映射。</li>
+        <li><b>系统多因子</b> — 顾问Pro(切腿对冲)+ 挖矿精选因子(SOTA+XGB)。</li>
+        <li><b>纪律风控</b> — 买入后 −10%硬止损 + 吊灯止盈, 管的是风险不是收益。</li>
+      </ol>
+      <b style="color:#fca5a5">成熟市场的价值/质量/突破/低吸/缩量回踩, 搬A股大半反向或失效</b>(散户主导+壳价值+做空受限)。别追技术形态择点。
+    </div>
+
+    <div class="sec">二、每天怎么操作(工作流)</div>
+    <div class="card">
+      <ol>
+        <li><span class="step">① 开盘前</span>: 打开 <a href="/daily">📋每日操作台</a> — 一屏看 底仓调仓 + 事件腿今日触发(抢跑/回购/海力士/打新) + 持仓踩雷 + <b>④数据新鲜度</b>(🔴过期别用旧清单)。</li>
+        <li><span class="step">② 下单</span>: 按 <a href="/portfolio">组合清单</a> 或事件腿清单买。<b>看「日均成交」列</b>, <2亿💧的票分批慢买别硬怼。下单后去 <a href="/sell">卖出提醒页</a> 录入持仓, <b style="color:#86efac">选好「来源腿」</b>。</li>
+        <li><span class="step">③ 盘中(可选)</span>: 14:30 看 <a href="/chipmap">海力士映射</a>(半导体做T信号); 持仓做T看 <a href="/intraday-classic">经典做T</a>(成本线/止损线叠分时)。</li>
+        <li><span class="step">④ 买入后风控</span>: 每只持仓在 <a href="/eventstop">事件止损页</a> 看两条线 — 🔴−10%跌破强平 / 🟢吊灯止盈跌破锁利。</li>
+        <li><span class="step">⑤ 卖出</span>: 卖出提醒页点💰卖出, 自动记台账。</li>
+        <li><span class="step">⑥ 定期复盘</span>: <a href="/track">实盘跟踪页</a> 看各腿<b>实盘 vs 回测</b>对得上不(攒3-6个月)。</li>
+      </ol>
+    </div>
+
+    <div class="sec">三、各页速查(按导航分组)</div>
+
+    <h4>💰 交易·持仓(最常用)</h4>
+    <div class="card"><table>
+      <tr><th>页面</th><th>干什么</th><th>关键用法</th></tr>
+      <tr><td class="p"><a href="/daily">每日操作台</a></td><td>一屏聚合今日要做的事</td><td>每天第一个打开; 看数据新鲜度别用断供数据</td></tr>
+      <tr><td class="p"><a href="/portfolio">组合配置</a><a href="/portfolio-guard">组合风控总控</a></td><td>四腿中性组合权重+总买入清单</td><td>按权重分配资金; 看ADV容量列; 🔥热榜/🟠毛利标记留痕</td></tr>
+      <tr><td class="p"><a href="/sell">卖出提醒</a></td><td>录入持仓+止损止盈信号+卖出台账</td><td>录入选「来源腿」; 填成本才有止损止盈</td></tr>
+      <tr><td class="p"><a href="/eventstop">事件止损</a></td><td>买入后风控: −10%止损+吊灯止盈</td><td>首字母搜索; 持仓总览; 吊灯倍数可调(白马1.5-2.0/题材1.5)</td></tr>
+      <tr><td class="p"><a href="/holdings">持仓对比</a></td><td>持仓收益 vs 基准折线</td><td>看选股+择时跑没跑赢基准</td></tr>
+      <tr><td class="p"><a href="/track">实盘跟踪</a></td><td>实盘业绩按腿归因+Pro回测台账</td><td>检验策略真伪的终极关; 录入时标腿才能归因</td></tr>
+      <tr><td class="p"><a href="/intraday-classic">经典做T</a></td><td>持仓分时叠经典指标+成本线</td><td>仅对已有持仓高抛低吸(A股T+1); 搜索框看任意票+历史基率</td></tr>
+    </table></div>
+
+    <h4>🎯 策略·事件腿(收益来源)</h4>
+    <div class="card"><table>
+      <tr><th>页面</th><th>策略</th><th>状态</th></tr>
+      <tr><td class="p"><a href="/advisor-pro">顾问Pro</a></td><td>切腿多因子, 对冲↔纯多头可切</td><td><span class="tag live">主底仓</span></td></tr>
+      <tr><td class="p"><a href="/runup">业绩抢跑</a></td><td>预增股财报前6日建仓前1日平</td><td><span class="tag live">夏2.05</span></td></tr>
+      <tr><td class="p"><a href="/repo">回购腿</a></td><td>回购公告后持60日</td><td><span class="tag live">夏0.95</span></td></tr>
+      <tr><td class="p"><a href="/chipmap">海力士映射</a></td><td>海力士>2%→A股半导体持1天</td><td><span class="tag live">夏2.75</span></td></tr>
+      <tr><td class="p"><a href="/avoid">毛利率避雷</a></td><td>热榜/毛利恶化/造假DSRI 三避雷</td><td><span class="tag live">剔除overlay</span></td></tr>
+      <tr><td class="p"><a href="/rsrs">RSRS择时</a></td><td>大盘阻力支撑强度方向信号</td><td><span class="tag live">≤10%方向腿</span></td></tr>
+      <tr><td class="p"><a href="/index_inclusion">纳入研究</a></td><td>指数成分调整事件</td><td><span class="tag live">事件腿</span></td></tr>
+      <tr><td class="p"><a href="/ipo">打新</a></td><td>今日可申购新股</td><td><span class="tag live">逢新必打</span></td></tr>
+      <tr><td class="p"><a href="/snowball">雪球避雷</a></td><td>场外雪球敲入抛压预警</td><td><span class="tag live">风险预警</span></td></tr>
+    </table></div>
+
+    <h4>⛏️ 挖矿 / 🔬 预测·回测(因子与模型)</h4>
+    <div class="card"><table>
+      <tr><th>页面</th><th>干什么</th></tr>
+      <tr><td class="p"><a href="/rdagent">挖矿(量价/基面)</a></td><td>RD-Agent挖因子, 仅夺SOTA才存批次; Docker要开</td></tr>
+      <tr><td class="p"><a href="/rdquant">RD-Quant</a></td><td>因子+模型联合优化</td></tr>
+      <tr><td class="p"><a href="/backtest">回测对比</a></td><td>各模型/批次回测曲线对比</td></tr>
+      <tr><td class="p"><a href="/predict-csi1000">Alpha158清单</a></td><td>各池下一日预测清单(可单跑某模型)</td></tr>
+      <tr><td class="p"><a href="/batch-arena">批次股票池对比</a></td><td>因子批次×股票池×模型 横评</td></tr>
+    </table>
+    <span style="color:#94a3b8;font-size:12px">挖矿要点: 价值在<b>因子筛选</b>(精选24因子>全套Alpha158, 打小盘csi1000); 模型上 <b>SOTA因子+XGB单模型最优</b>(NN集成只宽因子Alpha158有用)。</span>
+    </div>
+
+    <h4>📋 研究·其他</h4>
+    <div class="card"><table>
+      <tr><td class="p"><a href="/report">个股研报</a></td><td>单股基本面+分时</td></tr>
+      <tr><td class="p"><a href="/forecast">盈利预测</a></td><td>三表+DCF模型(复刻Excel)</td></tr>
+      <tr><td class="p"><a href="/research">研究台</a></td><td>回测结果库</td></tr>
+      <tr><td class="p"><a href="/thesis">瓶颈链</a></td><td>投资主题瓶颈分析</td></tr>
+    </table></div>
+
+    <div class="sec">四、已验证结论(别重蹈覆辙)</div>
+    <div class="card red">
+      <b style="color:#fca5a5">这些"听起来很对"的策略, 数据证明在A股扣成本后没edge, 别再试:</b>
+      <ul>
+        <li><b>绿买红卖/红绿盘四象限择点</b> — 127万样本全象限净超额负(t−4~−24), "缩量回踩MA20低吸"=−0.20%/胜42%。</li>
+        <li><b>突破/打板/杯柄形态</b> — 单笔骗局→组合−80%, 封板率仅10-40%。</li>
+        <li><b>低吸高抛/日内方向预测</b> — 命中48.8%≈抛硬币, 分钟级超额被成本washout。</li>
+        <li><b>分批止盈(+5%/+10%各卖)</b> — 削峰降夏普(0.197→0.183), 不如单仓吊灯。</li>
+        <li><b>−5%/−3%硬止损</b> — 太紧被下影线插针洗, A股<b>−10%收盘触发才最优</b>。</li>
+        <li><b>缠论/艾略特/威科夫</b> — 事后画图准、事前模糊, 形态在存量博弈=噪声。</li>
+      </ul>
+      <span style="color:#94a3b8;font-size:12px">共同教训: 择点/形态在A股是直觉陷阱。能赚的是催化剂(事件)+ 剔除隐患(避雷)+ 纪律(止损止盈), 不是"精准抄底逃顶"。</span>
+    </div>
+
+    <div class="card amber" style="font-size:12.5px">
+      <b>⚙️ 运维提示</b>: 数据由PC端export脚本+watcher生成→同步NAS。某腿数据🔴过期=去对应页点🔄刷新或查PC计划任务。代码改动经GitHub(main分支)手动传NAS <code>/volume1/docker/quantinvest</code> + <code>docker compose restart</code>(bind-mount无须rebuild)。
+    </div>
+  </div>
+</body>
+</html>

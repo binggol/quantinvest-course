@@ -1,0 +1,189 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>事件止损线 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline_contract.js"></script>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .inrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+  .inrow input{font-size:14px;padding:7px 10px;background:#0b1220;color:#e2e8f0;border:1px solid #334155;border-radius:6px}
+  .inrow button{font-size:14px;padding:7px 16px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin-bottom:12px}
+  #chart{width:100%;height:420px}
+  .kpis{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:8px}.kpi{text-align:center}.kpi .v{font-size:18px;font-weight:700}.kpi .l{font-size:11px;color:#94a3b8}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;color:#cbd5e1;font-size:12.5px;line-height:1.7;margin-top:10px}
+  .warn{color:#fbbf24}.bad{color:#f87171;font-weight:700}.ok{color:#34d399}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>【<span class="k">事件腿铁律风控</span>】事件(业绩/回购/重组等)买入后,画两条止损线:<b>① 买入日最低价</b> + <b>② 2-ATR止损(买入价−2×ATR)</b>。股价<b>跌破任一线 = 市场不认可此事件</b> → <b>3个交易日内强平,绝不移仓、绝不摊平</b>。输入代码+买入日(+买入价)看你的票现在破没破线。</div></details>
+  <div class="wrap">
+    <div class="hd">🛡️ 事件止损线</div>
+    <div class="card" style="background:#0d1a14;border-color:#1f3a2a">
+      <div style="font-weight:700;color:#86efac;margin-bottom:6px">📖 怎么用(3步)</div>
+      <div style="font-size:13px;line-height:1.9;color:#cbd5e1">
+        <b>这是"撤退红线"工具,不预测涨跌</b>——你买入一只票后(尤其抢跑/回购/海力士等事件腿),它帮你定好"跌破就走"的纪律,治散户"舍不得割、被一字跌停锁死"的毛病。<br>
+        <b style="color:#7dd3fc">① 录入</b>:下方填 代码 + 买入日 + 买入价(留空=用那天收盘价)<br>
+        <b style="color:#7dd3fc">② 看两条线</b>(图上自动画,建仓即钉死不浮动):<br>
+        &nbsp;&nbsp;🔴 <b>主止损 −10%</b>(跌了防灾,锁死最差−10%) &nbsp;|&nbsp; 🟢 <b>吊灯止盈 = 持有最高 − 1.5ATR</b>(涨了锁利,随新高上移) &nbsp;|&nbsp; 🟡 买入日最低(仅警示)<br>
+        <b style="color:#7dd3fc">③ 每天<u>收盘</u>看现价</b>(只看收盘价、躲A股下影线插针):<b class="bad">跌破🔴−10% → 3日内强平</b>;<b style="color:#86efac">跌破🟢吊灯 → 锁利了结浮盈</b>;两线之间=<span class="ok">持有</span><br>
+        <span style="color:#94a3b8;font-size:12px">实测调优(42415样本): 吊灯<b>浮盈&gt;5%才启动</b>(让早期波动跑一跑)、<b>1.5ATR默认</b>(可选1.0更稳/2.0更松)。最优+2.86%/胜60%/中位+2.35%。白马低波股可放1.5-2.0,题材高波股用1.5。−10%硬止损防灾锁−10%(不扛到−89%)。</span><br>
+        <span style="color:#94a3b8;font-size:12px">💡 也可在 <a href="/holdings" style="color:#60a5fa">持仓对比</a> 每只点「🛡️查看」、或 <a href="/intraday-classic" style="color:#60a5fa">经典做T</a> 分时图上直接看叠加的止损线。</span>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-weight:700;color:#cbd5e1;margin-bottom:6px">📦 我的持仓 · 止损止盈总览 <span id="hold-meta" style="font-size:12px;font-weight:400;color:#94a3b8"></span></div>
+      <div id="hold-content" class="empty">加载中…</div>
+    </div>
+    <div class="inrow">
+      <span style="position:relative;display:inline-block">
+        <input id="code" placeholder="代码/简称首字母/名称 如600183/gzmt/茅台" style="width:240px" autocomplete="off" oninput="srchSuggest()" onkeydown="srchKey(event)"/>
+        <div id="acbox" style="display:none;position:absolute;left:0;top:36px;z-index:50;width:300px;max-height:280px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.5)"></div></span>
+      <input id="evdate" placeholder="买入日 YYYY-MM-DD" style="width:160px"/>
+      <input id="buy" placeholder="买入价(可空)" style="width:110px"/>
+      <label style="font-size:13px;color:#94a3b8">吊灯
+        <select id="cm" onchange="if(document.getElementById('code').value)go()" style="font-size:13px;padding:6px;background:#0b1220;color:#e2e8f0;border:1px solid #334155;border-radius:6px">
+          <option value="1.0">1.0ATR(紧·胜率高)</option>
+          <option value="1.5" selected>1.5ATR(默认)</option>
+          <option value="2.0">2.0ATR(松·让利润奔跑)</option>
+        </select></label>
+      <button onclick="go()">画止损线</button>
+      <span id="msg" style="color:#94a3b8;font-size:13px"></span>
+    </div>
+    <div class="card">
+      <div class="kpis" id="kpis"></div>
+      <div id="status" style="font-size:14px;margin-bottom:6px"></div>
+      <div id="chart"></div>
+    </div>
+    <div class="note"><span class="warn">⚠️ 军规:</span> 买入后若股价<b>跌破买入日最低价</b>或<b>跌破2-ATR线</b>,表明走势不及预期 → <b class="bad">3个交易日内强平离场,绝不移仓,绝不摊平</b>。不卖在最高,但求卖在最确定。</div>
+  </div>
+<script>
+const chart=echarts.init(document.getElementById("chart"));
+window.addEventListener("resize",()=>chart.resize());
+try{ new ResizeObserver(()=>chart.resize()).observe(document.getElementById("chart")); }catch(e){}
+const $=id=>document.getElementById(id);
+// 首字母候选联想下拉(同首字母多股可选准确那只)
+let _acHits=[], _acIdx=-1, _acTimer=null;
+let stopRequestNo=0;
+function pickSearched(tscode,name){ $("acbox").style.display='none'; $("code").value=tscode; go(); }
+function srchSuggest(){
+  clearTimeout(_acTimer);
+  const q=$("code").value.trim();
+  if(q.length<1){ $("acbox").style.display='none'; _acHits=[]; return; }
+  _acTimer=setTimeout(async()=>{
+    try{
+      const d=await (await fetch('/api/search?q='+encodeURIComponent(q))).json();
+      _acHits=(d.hits||[]).slice(0,10); _acIdx=-1;
+      if(!_acHits.length){ $("acbox").style.display='none'; return; }
+      $("acbox").innerHTML=_acHits.map((h,i)=>`<div data-i="${i}" onclick="pickSearched('${h.ts_code}','${(h.name||'').replace(/'/g,'')}')" style="padding:5px 9px;cursor:pointer;border:1px solid #1e293b;border-top:none;background:#0b1220;font-size:13px"><b>${h.name}</b> <span style="color:#64748b">${h.ts_code} ${h.industry||''}</span></div>`).join('');
+      $("acbox").style.display='block';
+    }catch(e){ $("acbox").style.display='none'; }
+  },180);
+}
+function srchKey(e){
+  if(e.key==='Enter'){
+    if(_acIdx>=0 && _acHits[_acIdx]) pickSearched(_acHits[_acIdx].ts_code,_acHits[_acIdx].name);
+    else if(_acHits.length) pickSearched(_acHits[0].ts_code,_acHits[0].name);
+    else go();
+    return;
+  }
+  if(!_acHits.length) return;
+  if(e.key==='ArrowDown'){ e.preventDefault(); _acIdx=Math.min(_acIdx+1,_acHits.length-1); hlAc(); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); _acIdx=Math.max(_acIdx-1,0); hlAc(); }
+  else if(e.key==='Escape'){ $("acbox").style.display='none'; }
+}
+function hlAc(){ [...$("acbox").children].forEach((el,i)=>el.style.background=i===_acIdx?'#1e3a5f':'#0b1220'); }
+document.addEventListener('click',e=>{ if(!e.target.closest('#code')&&!e.target.closest('#acbox')) $("acbox").style.display='none'; });
+function go(){
+  const ownRequest=++stopRequestNo;
+  const code=document.getElementById("code").value.trim();
+  const ev=document.getElementById("evdate").value.trim();
+  const buy=document.getElementById("buy").value.trim();
+  if(!code){document.getElementById("msg").textContent="填代码";return;}
+  document.getElementById("msg").textContent="加载中…";
+  const cm=document.getElementById("cm").value;
+  const base=`/api/eventstop?code=${encodeURIComponent(code)}&buy_price=${encodeURIComponent(buy)}&chand_mult=${cm}`;
+  // 兜底: 带event_date若服务端报错(旧版bug), 自动去掉日期重试, 保证图能画
+  async function fetchStop(){
+    try{ const r=await fetch(base+`&event_date=${encodeURIComponent(ev)}`); if(r.ok){const j=await r.json(); if(j&&j.ok!==false) return j;} }catch(e){}
+    if(ev){ try{ const r2=await fetch(base); const j2=await r2.json(); if(j2&&j2.ok) { j2._noev=true; return j2; } }catch(e){} }
+    return {ok:false,message:"加载失败(服务端错误)"};
+  }
+  fetchStop().then(d=>{
+    if(ownRequest!==stopRequestNo)return;
+    if(!d.ok){document.getElementById("msg").textContent=d.message||"失败";return;}
+    const contract=QIKline.assertCompactPayload(d.k,"qfq");
+    document.getElementById("msg").textContent = `${d._noev?"⚠️买入日暂用最新交易日 · ":""}${contract.adjustLabel} · ${contract.count}个交易日 · 截至${contract.lastDate}${contract.qualityNotice ? ` · ${contract.qualityNotice}` : ""}`;
+    const broke=d.broke_pct;   // 红色强平只看-10%硬止损
+    const tp=!d.broke_pct&&d.chand_broke;   // 吊灯止盈触发=锁利
+    const warn=!d.broke_pct&&!d.chand_broke&&d.broke_evlow;
+    document.getElementById("kpis").innerHTML=
+      `<div class="kpi" style="min-width:140px"><div class="v" style="font-size:20px">${d.name||d.code}</div><div class="l">${d.code} · 买入日 ${d.ev_date||'-'}</div></div>`+
+      [["买入价",d.buy],["持有最高",d.hh],["🟢吊灯止盈",d.chand_active?d.chand_stop:'未启动(浮盈<5%)'],
+      ["🔴主止损-10%",d.pct_stop],["买入日最低",d.ev_low],["现价",d.last]
+    ].map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+    document.getElementById("status").innerHTML = broke
+      ? `<span class="bad">${d.status}</span>`
+      : (tp ? `<span style="color:#34d399;font-weight:700">${d.status}</span>`
+            : (warn ? `<span class="warn">${d.status}</span>`
+                    : `<span class="ok">✅ ${d.status} · 现价${d.last} 在止损/止盈线之间</span>`));
+    const k=d.k, n=k.dates.length;
+    const evIdx=k.dates.indexOf(d.ev_date);
+    chart.setOption({animation:false,
+      title:{text:`${d.name||d.code} ${d.code} · 前复权 · 买入日 ${d.ev_date||'-'}`,left:"center",textStyle:{color:"#cbd5e1",fontSize:13}},
+      tooltip:{trigger:"axis"},grid:{left:54,right:18,top:34,bottom:54},
+      xAxis:{type:"category",data:k.dates,axisLabel:{color:"#94a3b8",fontSize:10}},
+      yAxis:{scale:true,axisLabel:{color:"#94a3b8"},splitLine:{lineStyle:{color:"#1e293b"}}},
+      dataZoom:[{type:"inside",start:Math.max(0,(1-50/n)*100)},{type:"slider",bottom:14,height:16,start:Math.max(0,(1-50/n)*100)}],
+      series:[{type:"candlestick",data:k.ohlc,itemStyle:{color:"#ef4444",color0:"#22c55e",borderColor:"#ef4444",borderColor0:"#22c55e"},
+        markLine:{silent:true,symbol:"none",data:[
+          ...(d.chand_active?[{yAxis:d.chand_stop,lineStyle:{color:"#22c55e",width:2},label:{formatter:"🟢吊灯止盈 "+d.chand_stop,color:"#86efac",fontSize:11,position:"insideEndTop"}}]:[]),
+          {yAxis:d.pct_stop,lineStyle:{color:"#ef4444",width:2.5},label:{formatter:"🔴主止损-10% "+d.pct_stop,color:"#fca5a5",fontSize:11,position:"insideEndBottom"}},
+          {yAxis:d.ev_low,lineStyle:{color:"#f59e0b",width:2},label:{formatter:"🟠买入日最低价(警示线) "+d.ev_low,color:"#fbbf24",fontSize:11,position:"insideEndTop"}},
+          {yAxis:d.atr_stop,lineStyle:{color:"#64748b",width:1,type:"dashed"},label:{formatter:"2-ATR参考 "+d.atr_stop,color:"#94a3b8",fontSize:10,position:"insideStartBottom"}},
+          {yAxis:d.buy,lineStyle:{color:"#60a5fa",type:"dotted"},label:{formatter:"买入 "+d.buy,color:"#93c5fd",fontSize:10}}
+        ]},
+        markPoint:evIdx>=0?{symbol:"pin",symbolSize:36,data:[{coord:[evIdx,d.ev_low],value:"买入",itemStyle:{color:"#f59e0b"}}]}:undefined}]
+    },true);
+    setTimeout(()=>chart.resize(),60);
+  }).catch(e=>{if(ownRequest!==stopRequestNo)return;chart.clear();document.getElementById("msg").textContent="K线加载失败: "+e.message;});
+}
+// URL预填
+// 持仓止损总览
+function pickHold(code,ev){ document.getElementById("code").value=code; document.getElementById("evdate").value=ev||""; go(); window.scrollTo({top:document.getElementById("chart").offsetTop-80,behavior:"smooth"}); }
+async function loadHoldings(){
+  // 复用持仓对比接口(已验证可用), 前端算-10%硬止损线+状态。吊灯/买入日最低需点单股看图(那里有ATR)。
+  let d; try{ d=await (await fetch("/api/holdings_curve?bench=sh000300")).json(); }catch(e){ document.getElementById("hold-content").innerHTML='加载失败'; return; }
+  const it=(d.holdings||[]).filter(x=>x.cost);   // 有成本才算止损
+  let nStop=0;
+  it.forEach(x=>{ x.pct_stop=+(x.cost*0.90).toFixed(3); x.broke=x.last!=null&&x.last<=x.pct_stop; if(x.broke)nStop++; });
+  document.getElementById("hold-meta").textContent = it.length?`${it.length}只 · ${nStop?('🔴'+nStop+'只跌破-10%硬止损'):'均在止损线上方'}`:"";
+  if(!it.length){ document.getElementById("hold-content").innerHTML='<div class="empty">无持仓(去卖出提醒页录入成本+买入日)</div>'; return; }
+  it.sort((a,b)=>(b.broke?1:0)-(a.broke?1:0)||(a.ret??0)-(b.ret??0));
+  let h='<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:#94a3b8;text-align:right"><th style="text-align:left">名称</th><th style="text-align:left">代码</th><th style="text-align:left">买入日</th><th>成本</th><th>现价</th><th>盈亏%</th><th>🔴止损-10%</th><th style="text-align:left">状态</th></tr></thead><tbody>';
+  h+=it.map(x=>{
+    const st = x.broke?`<span style="color:#f87171;font-weight:700">🔴跌破-10%硬止损,该止损</span>`:`<span style="color:#34d399">✅ 持有(在止损线上方)</span>`;
+    return `<tr style="border-top:1px solid #1e293b;cursor:pointer" onclick="pickHold('${x.code}','${x.buy||''}')">
+      <td style="text-align:left"><b>${x.name||'—'}</b></td>
+      <td style="text-align:left;color:#7dd3fc;font-family:monospace">${x.code}</td>
+      <td style="text-align:left;color:#94a3b8">${x.buy||'-'}</td>
+      <td style="text-align:right">${x.cost!=null?x.cost:'-'}</td><td style="text-align:right">${x.last!=null?x.last:'-'}</td>
+      <td style="text-align:right;color:${(x.ret||0)>=0?'#ef4444':'#22c55e'}">${x.ret!=null?(x.ret>0?'+':'')+x.ret+'%':'-'}</td>
+      <td style="text-align:right;color:#fca5a5">${x.pct_stop}</td>
+      <td style="text-align:left">${st}</td></tr>`;
+  }).join('');
+  h+='</tbody></table><div style="font-size:11px;color:#64748b;margin-top:5px">点任一行→下方画该股完整止损图(含吊灯止盈/买入日最低)。数据来自持仓对比(卖出提醒页录入的成本+买入日)。</div>';
+  document.getElementById("hold-content").innerHTML=h;
+}
+loadHoldings();
+const u=new URLSearchParams(location.search);
+if(u.get("code")){document.getElementById("code").value=u.get("code");document.getElementById("evdate").value=u.get("event_date")||"";go();}
+</script>
+</body>
+</html>

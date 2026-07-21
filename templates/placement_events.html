@@ -1,0 +1,149 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>定增事件 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1440px;margin:0 auto;padding:16px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0 12px}
+  .title{font-size:22px;font-weight:700}
+  .sub{color:#94a3b8;font-size:13px;line-height:1.6;margin-top:4px}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  input,select,button{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:7px;padding:7px 10px;font-size:13px}
+  button{cursor:pointer}
+  button.primary{background:#1d4ed8;border-color:#1d4ed8}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .stat{background:#111827;border:1px solid #334155;border-radius:8px;padding:7px 10px;color:#cbd5e1;font-size:12px}
+  .panel{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px}
+  .scroll{overflow:auto;max-height:72vh}
+  table{border-collapse:collapse;width:100%;font-size:12px;min-width:1280px}
+  th,td{border:1px solid #1e293b;padding:6px 8px;text-align:left;white-space:nowrap}
+  th{position:sticky;top:0;background:#111827;color:#94a3b8;cursor:pointer;user-select:none;z-index:1}
+  td.num{text-align:right}
+  .muted{color:#64748b}.warn{color:#fbbf24}.bad{color:#fca5a5}.ok{color:#86efac}
+  .pill{display:inline-block;border-radius:999px;padding:1px 7px;background:#1e293b;color:#cbd5e1;font-size:11px}
+  a.link{color:#7dd3fc;text-decoration:none}
+  .empty{padding:24px;color:#94a3b8;text-align:center}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="title">定增进度 / 定增解禁</div>
+      <div class="sub">官方公告逐笔证据优先；制度版本用于交叉核验，不替代公告中的认购对象、限售承诺和起算日。</div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <input id="q" placeholder="搜索代码、名称、标题、来源" oninput="render()"/>
+    <select id="scope" onchange="render()">
+      <option value="">全部记录</option>
+      <option value="near">未来90天解禁</option>
+      <option value="past">已过解禁</option>
+      <option value="nodate">无解禁日</option>
+      <option value="priced">有发行价</option>
+      <option value="unpriced">无发行价</option>
+      <option value="support_high">低于发行价/九折参考价</option>
+      <option value="support_watch">接近发行价/九折参考价</option>
+    </select>
+    <button id="retry" type="button" style="display:none">重新加载</button>
+    <span id="status" class="muted">加载中...</span>
+  </div>
+  <div id="stats" class="stats"></div>
+  <div class="panel"><div id="table" class="scroll"></div></div>
+</div>
+<script>
+let ITEMS=[], SUMMARY={}, UPDATED="", SORT={k:"days_to_unlock",dir:1};
+const COLS=[
+  ["code","代码"],["name","简称"],["kind","类型"],["plan_date","预案时间"],
+  ["board_date","董事会时间"],["shareholder_date","股东会时间"],["exchange_approval_date","交易所通过"],
+  ["approval_date","证监会批文"],["issue_date","发行时间"],["list_date","上市时间"],
+  ["issue_price","发行价格"],["current_price","当前价"],
+  ["avg20","20日均价"],["discount_floor","20日九折"],["issue_price_gap_pct","较发行价%"],
+  ["discount_floor_gap_pct","较九折底价%"],["lock_start_date","限售起算日"],
+  ["unlock_date","解禁日/区间"],["unlock_evidence","期限依据"],
+  ["regulatory_review","综合判断"],["days_to_unlock","距最早解禁"],
+  ["placement_support_label","价格距离标签"],["dataset","来源"],["title","公告标题"]
+];
+function esc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function sortBy(k){if(SORT.k===k)SORT.dir*=-1;else SORT={k,dir:1};render()}
+function cellClass(row,k){if(k!=="days_to_unlock")return "";const d=row.days_to_unlock;if(Number.isInteger(d)&&d>=0&&d<=30)return "bad";if(Number.isInteger(d)&&d>=0&&d<=90)return "warn";if(Number.isInteger(d)&&d<0)return "muted";return ""}
+function cmp(a,b){const k=SORT.k,av=a[k]??"",bv=b[k]??"",an=Number(av),bn=Number(bv);if(av!==""&&bv!==""&&!Number.isNaN(an)&&!Number.isNaN(bn))return (an-bn)*SORT.dir;return String(av).localeCompare(String(bv),"zh-CN")*SORT.dir}
+function filtered(){
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const scope=document.getElementById("scope").value;
+  return ITEMS.filter(x=>{
+    if(q&&!JSON.stringify(x).toLowerCase().includes(q))return false;
+    const d=x.days_to_unlock;
+    if(scope==="near"&&!(Number.isInteger(d)&&d>=0&&d<=90))return false;
+    if(scope==="past"&&!(Number.isInteger(d)&&d<0))return false;
+    if(scope==="nodate"&&x.unlock_date)return false;
+    if(scope==="priced"&&!x.issue_price)return false;
+    if(scope==="unpriced"&&x.issue_price)return false;
+    if(scope==="support_high"&&x.placement_support_level!=="strong")return false;
+    if(scope==="support_watch"&&x.placement_support_level!=="watch")return false;
+    return true;
+  }).sort(cmp);
+}
+function render(){
+  const rows=filtered();
+  document.getElementById("status").textContent=`${rows.length} / ${ITEMS.length} 条 · 数据更新 ${UPDATED||"-"}`;
+  document.getElementById("stats").innerHTML=[
+    ["总记录",SUMMARY.n],["最早公告",SUMMARY.earliest_ann_date||"-"],["最新公告",SUMMARY.latest_ann_date||"-"],
+    ["最早解禁",SUMMARY.earliest_unlock_date||"-"],["最晚解禁",SUMMARY.latest_unlock_date||"-"],
+    ["已过期",SUMMARY.past_unlock],["90天内",SUMMARY.near_unlock_90d],["90天后",SUMMARY.future_unlock]
+  ].map(x=>`<span class="stat">${x[0]} <b>${x[1]??"-"}</b></span>`).join("");
+  let h="<table><thead><tr>"+COLS.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}${SORT.k===c[0]?(SORT.dir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr></thead><tbody>";
+  if(!rows.length)h+=`<tr><td colspan="${COLS.length}" class="empty">${ITEMS.length?"当前筛选条件下没有记录":"暂无定增事件数据"}</td></tr>`;
+  h+=rows.map(x=>"<tr>"+COLS.map(c=>{
+    let v=x[c[0]];
+    const stageKey={plan_date:"plan",board_date:"board",shareholder_date:"shareholder",exchange_approval_date:"exchange_approval",approval_date:"approval",issue_date:"issue"}[c[0]];
+    const evidence=stageKey&&x.stage_evidence?x.stage_evidence[stageKey]:null;
+    if(stageKey&&v&&evidence&&evidence.url)v=`<a class="link" href="${esc(evidence.url)}" target="_blank" rel="noopener noreferrer" title="${esc(evidence.title||"")}">${esc(v)}</a>`;
+    else if(c[0]==="title"&&x.url)v=`<a class="link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title||"公告")}</a>`;
+    else if(c[0]==="placement_support_label")v=v?`<span class="pill">${esc(v)}</span>`:"";
+    else if(c[0]==="unlock_date"&&v&&x.unlock_estimated){
+      const schedule=Array.isArray(x.unlock_schedule)?x.unlock_schedule:[];
+      const latest=x.unlock_date_latest||v;
+      const detail=schedule.map(s=>`${s.holder?`${s.holder} `:""}${s.lock_period||"期限"}: ${s.unlock_date||"-"}${s.estimated?" (估算)":" (公告日期)"}`).join("；");
+      v=`<span class="warn" title="${esc(detail)}">约 ${esc(v)}${latest!==v?` 至 ${esc(latest)}`:""}</span>`;
+    }
+    else if(c[0]==="unlock_evidence"){
+      const basis={official_tradable_date:"公告明确上市流通日",explicit_unlock_date:"公告明确解禁日",source_lock_period:"明确期限推算",multiple_source_lock_periods:"多档期限推算",tranche_schedule:"分档期限逐笔计算",pending_source_evidence:"期限或起算日待证据"}[x.unlock_basis]||x.unlock_basis||"待公告证据";
+      const confidence={high:"高",medium:"中",pending:"待定"}[x.unlock_confidence]||x.unlock_confidence||"待定";
+      const evidence=x.lock_term_evidence;
+      const source=Array.isArray(evidence)?((evidence.find(e=>e&&e.url)||{}).url):(evidence&&evidence.url);
+      const label=`${x.lock_period||((x.lock_periods||[]).join(" / "))||"期限待定"} · ${basis} (${confidence})`;
+      v=source?`<a class="link" href="${esc(source)}" target="_blank">${esc(label)}</a>`:esc(label);
+      if(x.lock_term_conflict)v+=` <span class="bad">来源冲突</span>`;
+    }
+    else if(c[0]==="regulatory_review"){
+      const r=x.regulatory_context||{};
+      const status={consistent:"与该期通用档一致",announcement_controls:"专项交易按公告",multiple_terms_announcement_controls:"多档期限按公告",mixed_tranches_announcement_controls:"多交易分档按公告",transaction_specific:"专项交易待公告",special_term_review:"特殊期限复核",pending_evidence:"待期限证据",pending_date_evidence:"待发行日期证据"}[r.status]||r.status||"待核验";
+      const label=`${r.regime||"制度版本待定"} · ${status}`;
+      v=r.rule_url?`<a class="link" href="${esc(r.rule_url)}" target="_blank">${esc(label)}</a>`:esc(label);
+    }
+    else v=esc(v);
+    return `<td class="${c[0]==='days_to_unlock'||c[0].includes('price')||c[0].includes('pct')||c[0]==='avg20'||c[0]==='discount_floor'?'num ':''}${cellClass(x,c[0])}">${v||"<span class='muted'>-</span>"}</td>`;
+  }).join("")+"</tr>").join("");
+  document.getElementById("table").innerHTML=h+"</tbody></table>";
+}
+async function load(){
+  document.getElementById("retry").style.display="none";
+  document.getElementById("status").textContent="加载中...";
+  const response=await fetch("/api/placement_events",{cache:"no-store"});
+  const d=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(d.message||d.error||`HTTP ${response.status}`);
+  ITEMS=d.items||[]; SUMMARY=d.summary||{}; UPDATED=d.updated||""; render();
+}
+document.getElementById("retry").addEventListener("click",()=>load().catch(showError));
+function showError(e){document.getElementById("status").textContent="加载失败: "+e.message;document.getElementById("retry").style.display="inline-block";document.getElementById("table").innerHTML='<div class="empty">定增事件暂时无法加载</div>'}
+load().catch(showError);
+</script>
+</body>
+</html>
+
+

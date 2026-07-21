@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>新股发行日历 · QuantInvest</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}">
+</head>
+<body class="member-shell">
+  <header class="member-head"><div class="brand-row"><h1>QuantInvest 数据服务</h1></div>{% include "_nav.html" %}</header>
+  <main class="member-main">
+    <div class="page-title"><h2>新股发行日历</h2><div id="ipo-updated" class="muted">正在加载</div></div>
+    <div id="ipo-sections" class="ipo-sections"></div>
+    <div class="notice">发行安排可能调整，请以交易所及发行人正式公告为准。</div>
+  </main>
+<script>
+(() => {
+  "use strict";
+  const root = document.getElementById("ipo-sections");
+  const updated = document.getElementById("ipo-updated");
+  const groups = [
+    ["今日申购资料", "today_buy"],
+    ["未来七日发行资料", "soon_buy"],
+    ["近期上市资料", "just_listed"]
+  ];
+  const columns = [
+    ["代码", row => row.sub_code || row.code || "-"],
+    ["名称", row => row.name || "-"],
+    ["板块", row => row.board || "-"],
+    ["发行价", row => row.price ?? row.issue_price ?? "-"],
+    ["发行市盈率", row => row.pe ?? row.issue_pe ?? "-"],
+    ["申购日", row => row.ipo_date || "-"],
+    ["上市日", row => row.issue_date || row.list_date || "-"]
+  ];
+
+  function section(title, rows) {
+    rows = Array.isArray(rows) ? rows.filter(row => row && typeof row === "object") : [];
+    const block = document.createElement("section");
+    block.className = "section";
+    const heading = document.createElement("h3");
+    heading.textContent = `${title}（${rows.length}）`;
+    block.appendChild(heading);
+    if (!rows.length) {
+      const empty = document.createElement("div"); empty.className = "table-empty"; empty.textContent = "暂无记录"; block.appendChild(empty); return block;
+    }
+    const wrap = document.createElement("div"); wrap.className = "member-table-wrap";
+    const table = document.createElement("table"); table.className = "member-data-table";
+    const thead = document.createElement("thead"); const headRow = document.createElement("tr");
+    columns.forEach(([label]) => { const th = document.createElement("th"); th.textContent = label; headRow.appendChild(th); });
+    thead.appendChild(headRow);
+    const tbody = document.createElement("tbody");
+    rows.forEach(row => {
+      const tr = document.createElement("tr");
+      columns.forEach(([, value]) => { const td = document.createElement("td"); td.textContent = String(value(row)); tr.appendChild(td); });
+      tbody.appendChild(tr);
+    });
+    table.append(thead, tbody); wrap.appendChild(table); block.appendChild(wrap); return block;
+  }
+
+  fetch("/api/ipo").then(async response => {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+    const sections = groups.map(([title, key]) => section(title, data[key]));
+    const total = groups.reduce((count, [, key]) => count + (Array.isArray(data[key]) ? data[key].length : 0), 0);
+    updated.textContent = total ? `更新 ${data.updated || data.today || "-"}` : (data.message || "暂无发行记录");
+    root.replaceChildren(...sections);
+  }).catch(error => {
+    const message = document.createElement("div");
+    message.className = "table-empty";
+    message.textContent = "发行日历加载失败，请稍后重试";
+    root.replaceChildren(message);
+    updated.textContent = `加载失败：${error.message}`;
+  });
+})();
+</script>
+</body>
+</html>

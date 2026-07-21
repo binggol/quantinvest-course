@@ -1,0 +1,52 @@
+diff --git a/gen_report.py b/gen_report.py
+--- a/gen_report.py
++++ b/gen_report.py
+@@ -9,5 +9,6 @@ import numpy as np,pandas as pd,tushare as ts
+ R=r"C:\rdagent"
+ TOK=(os.environ.get("TUSHARE_TOKEN") or (open('C:/rdagent/data/.tushare_token').read() if os.path.exists('C:/rdagent/data/.tushare_token') else "")).strip()
+ if not TOK: raise RuntimeError("TUSHARE_TOKEN is not set and C:/rdagent/data/.tushare_token is unavailable or empty")
+ pro=ts.pro_api(TOK)
++from ipo_prospectus import build_business_context,load_prospectus
+ def safe(fn,t=5,w=6,ne=False):
+@@ -124,10 +125,15 @@ def llm_draft(ctx):
+     return out
+ def main():
+     code=to_ts(sys.argv[1] if len(sys.argv)>1 else "301071")
++    request_meta={}
++    if len(sys.argv)>2:
++        try: request_meta=json.loads(sys.argv[2])
++        except Exception: request_meta={}
+     c6=code[:6]
+     nm=json.load(open(os.path.join(R,"fundamentals.json"),encoding="utf-8")) if os.path.exists(os.path.join(R,"fundamentals.json")) else {"stocks":{},"by_l3":{}}
+     stocks=nm.get("stocks",{}); byl3=nm.get("by_l3",{})
+     import pickle
+     lvl=pickle.load(open(os.path.join(R,"_sw_lvl_map.pkl"),"rb")); names=pickle.load(open(os.path.join(R,"_name_map.pkl"),"rb"))
+-    name=names.get(code,code); lv=lvl.get(code,{}) or {}
++    name=str(request_meta.get("name") or names.get(code,code))
++    lv=lvl.get(code,{}) or {}
+     print(f"生成 {name}({code}) 报告…",flush=True)
+@@ -211,3 +217,13 @@ def main():
+             top_item=str(mb.iloc[0]["bz_item"])   # 占比最大的主营业务
+             break
++    prospectus={}
++    if request_meta.get("is_ipo") or not mainbz:
++        try:
++            prospectus=load_prospectus(
++                code,name,str(request_meta.get("prospectus_url") or ""))
++        except Exception as e:
++            print(f"  招股书加载失败: {e}",flush=True)
++            prospectus={}
++    business_ctx,business_source=build_business_context(
++        code,name,mainbz,prospectus)
+     # 同主营同行估值比较: 优先按"占比最大主营"匹配同花顺概念, 回退申万三级
+diff --git a/alphagen_listener.py b/alphagen_listener.py
+--- a/alphagen_listener.py
++++ b/alphagen_listener.py
+@@ -135,5 +135,6 @@ def handle_report(req):
+     code=str(req.get("code","")).strip(); c6=str(req.get("c6",code)).replace(".","")[:6]
+     if not code: return
+     put("report_status.json",{"c6":c6,"status":f"⏳ 生成 {code} 报告中(拉数据+LLM起草, 约1-2分钟)…"})
+-    r=subprocess.run([PY,r"C:\rdagent\gen_report.py",code],cwd=r"C:\rdagent",
++    meta=json.dumps(req,ensure_ascii=False)
++    r=subprocess.run([PY,r"C:\rdagent\gen_report.py",code,meta],cwd=r"C:\rdagent",
+                      stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=900)

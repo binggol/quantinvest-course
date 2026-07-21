@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>行情与 K 线 · QuantInvest</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}">
+  <script src="/static/echarts.min.js"></script>
+  <script src="{{ url_for('static', filename='kline_contract.js') }}"></script>
+</head>
+<body class="member-shell">
+  <header class="member-head">
+    <div class="brand-row"><h1>QuantInvest 数据服务</h1></div>
+    {% include "_nav.html" %}
+  </header>
+  <main class="member-main market-workspace">
+    <div class="page-title market-title">
+      <div><h2>行情与 K 线</h2><div id="market-meta" class="muted">请选择股票</div></div>
+      <button id="watch-toggle" class="icon-command" type="button" title="加入自选" aria-label="加入自选" disabled>☆</button>
+    </div>
+    <div class="market-toolbar" role="search">
+      <div class="market-search">
+        <label for="market-query">股票</label>
+        <input id="market-query" type="search" autocomplete="off" placeholder="代码、名称或拼音首字母">
+        <div id="market-suggestions" class="market-suggestions" hidden></div>
+      </div>
+      <label>复权
+        <select id="market-adjust"><option value="qfq">前复权</option><option value="hfq">后复权</option><option value="none">不复权</option></select>
+      </label>
+      <label>区间
+        <select id="market-days"><option value="0">全部</option><option value="120">半年</option><option value="250" selected>一年</option><option value="500">两年</option><option value="1250">五年</option></select>
+      </label>
+    </div>
+    <section class="market-chart-frame" aria-label="K 线图">
+      <div id="market-chart"></div>
+      <div id="market-status" class="market-status" role="status">等待选择股票</div>
+    </section>
+    <div class="notice">图表与技术指标由历史行情计算，仅用于数据浏览和统计分析。</div>
+  </main>
+<script>
+(() => {
+  "use strict";
+  const query = document.getElementById("market-query");
+  const suggestions = document.getElementById("market-suggestions");
+  const adjust = document.getElementById("market-adjust");
+  const days = document.getElementById("market-days");
+  const meta = document.getElementById("market-meta");
+  const status = document.getElementById("market-status");
+  const watchButton = document.getElementById("watch-toggle");
+  const chartElement = document.getElementById("market-chart");
+  if (!window.echarts) {
+    status.textContent = "图表组件加载失败，请检查网络后刷新";
+    return;
+  }
+  const chart = echarts.init(chartElement);
+  let currentCode = "";
+  let currentName = "";
+  let searchTimer = null;
+  let searchRequestNo = 0;
+  let requestNo = 0;
+  let watchCodes = new Set();
+
+  function movingAverage(values, windowSize) {
+    let sum = 0;
+    return values.map((value, index) => {
+      sum += Number(value || 0);
+      if (index >= windowSize) sum -= Number(values[index - windowSize] || 0);
+      return index < windowSize - 1 ? "-" : +(sum / windowSize).toFixed(3);
+    });
+  }
+
+  async function jsonFetch(url, options) {
+    const response = await fetch(url, options);
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || body.message || `HTTP ${response.status}`);
+    return body;
+  }
+
+  function updateWatchButton() {
+    const watching = currentCode && watchCodes.has(currentCode);
+    watchButton.disabled = !currentCode;
+    watchButton.textContent = watching ? "★" : "☆";
+    watchButton.classList.toggle("active", Boolean(watching));
+    watchButton.title = watching ? "移出自选" : "加入自选";
+    watchButton.setAttribute("aria-label", watchButton.title);
+  }
+
+  async function loadWatchlist() {
+    try {
+      const data = await jsonFetch("/api/watchlist");
+      const items = Array.isArray(data.items) ? data.items : [];
+      watchCodes = new Set(items.map(item => item && item.code).filter(Boolean));
+    } catch (error) {
+      watchCodes = new Set();
+      status.textContent = `自选加载失败，仍可搜索股票：${error.message}`;
+    }
+    updateWatchButton();
+  }
+
+  function renderChart(data) {
+    const dates = Array.isArray(data.dates) ? data.dates : [];
+    const opens = Array.isArray(data.open) ? data.open : [];
+    const closes = Array.isArray(data.close) ? data.close : [];
+    const lows = Array.isArray(data.low) ? data.low : [];
+    const highs = Array.isArray(data.high) ? data.high : [];
+    const volume = Array.isArray(data.volume) ? data.volume : [];
+    if (!dates.length || [opens, closes, lows, highs, volume].some(values => values.length !== dates.length)) {
+      throw new Error("行情字段缺失或长度不一致");
+    }
+    const candles = closes.map((_, index) => [opens[index], closes[index], lows[index], highs[index]]);
+    const volumes = volume.map((value, index) => ({
+      value,
+      itemStyle: { color: closes[index] >= opens[index] ? "#ef4444" : "#22c55e" }
+    }));
+    chart.setOption({
+      animation: false,
+      backgroundColor: "transparent",
+      tooltip: { trigger: "axis", axisPointer: { type: "cross" }, confine: true },
+      legend: { data: ["K线", "MA5", "MA10", "MA20", "MA60"], top: 4, textStyle: { color: "#b8c7d9" } },
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      grid: [{ left: 58, right: 20, top: 42, height: "62%" }, { left: 58, right: 20, top: "76%", height: "14%" }],
+      xAxis: [
+        { type: "category", data: dates, boundaryGap: false, axisLine: { lineStyle: { color: "#44566c" } }, axisLabel: { color: "#91a4bb" }, min: "dataMin", max: "dataMax" },
+        { type: "category", gridIndex: 1, data: dates, boundaryGap: false, axisLine: { lineStyle: { color: "#44566c" } }, axisLabel: { show: false }, min: "dataMin", max: "dataMax" }
+      ],
+      yAxis: [
+        { scale: true, splitLine: { lineStyle: { color: "#203047" } }, axisLabel: { color: "#91a4bb" } },
+        { scale: true, gridIndex: 1, splitNumber: 2, splitLine: { show: false }, axisLabel: { color: "#91a4bb" } }
+      ],
+      dataZoom: [{ type: "inside", xAxisIndex: [0, 1], start: 55, end: 100 }, { type: "slider", xAxisIndex: [0, 1], bottom: 4, height: 18, borderColor: "#33475e", textStyle: { color: "#91a4bb" } }],
+      series: [
+        { name: "K线", type: "candlestick", data: candles, itemStyle: { color: "#ef4444", color0: "#22c55e", borderColor: "#ef4444", borderColor0: "#22c55e" } },
+        { name: "MA5", type: "line", data: movingAverage(closes, 5), showSymbol: false, smooth: true, lineStyle: { width: 1, color: "#f59e0b" } },
+        { name: "MA10", type: "line", data: movingAverage(closes, 10), showSymbol: false, smooth: true, lineStyle: { width: 1, color: "#38bdf8" } },
+        { name: "MA20", type: "line", data: movingAverage(closes, 20), showSymbol: false, smooth: true, lineStyle: { width: 1, color: "#a78bfa" } },
+        { name: "MA60", type: "line", data: movingAverage(closes, 60), showSymbol: false, smooth: true, lineStyle: { width: 1, color: "#f472b6" } },
+        { name: "成交量", type: "bar", xAxisIndex: 1, yAxisIndex: 1, data: volumes }
+      ]
+    }, true);
+  }
+
+  async function loadKline(code, name) {
+    const ownRequest = ++requestNo;
+    currentCode = code;
+    currentName = name || "";
+    query.value = currentName ? `${currentName} ${code.replace(/^[a-z]+/, "")}` : code;
+    suggestions.hidden = true;
+    adjust.disabled = false;
+    adjust.title = "";
+    status.textContent = "正在加载行情";
+    meta.textContent = currentName ? `${currentName} · ${code}` : code;
+    updateWatchButton();
+    try {
+      const params = new URLSearchParams({ code, days: days.value, adjust: adjust.value, refresh: "0" });
+      const data = await jsonFetch(`/api/kline?${params}`);
+      if (ownRequest !== requestNo) return;
+      const contract = QIKline.assertPayload(data, adjust.value);
+      adjust.disabled = !contract.adjustmentApplicable;
+      adjust.title = contract.adjustmentApplicable ? "" : "指数不适用复权";
+      currentCode = data.code || currentCode;
+      currentName = data.name || currentName;
+      if (!Array.isArray(data.dates) || !data.dates.length) throw new Error("接口未返回行情日期");
+      const lastDate = data.dates[data.dates.length - 1] || "";
+      meta.textContent = `${currentName || data.code} · ${data.code} · ${lastDate}`;
+      query.value = currentName ? `${currentName} ${currentCode.replace(/^[a-z]+/, "")}` : currentCode;
+      updateWatchButton();
+      renderChart(data);
+      status.textContent = `${contract.count} 个交易日 · ${contract.adjustLabel} · ${contract.source}${contract.qualityNotice ? ` · ${contract.qualityNotice}` : ""}`;
+    } catch (error) {
+      if (ownRequest !== requestNo) return;
+      chart.clear();
+      console.error("K-line load failed", error);
+      status.textContent = `行情加载失败：${error.message}`;
+    }
+  }
+
+  async function searchStocks() {
+    const text = query.value.trim();
+    const ownRequest = ++searchRequestNo;
+    if (!text) { suggestions.hidden = true; suggestions.replaceChildren(); return; }
+    try {
+      const data = await jsonFetch(`/api/search?q=${encodeURIComponent(text)}`);
+      if (ownRequest !== searchRequestNo) return;
+      const hits = Array.isArray(data.hits) ? data.hits : [];
+      const fragment = document.createDocumentFragment();
+      hits.slice(0, 10).forEach(hit => {
+        if (!hit || !hit.code) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        const title = document.createElement("b");
+        title.textContent = hit.name || hit.code;
+        const detail = document.createElement("span");
+        detail.textContent = `${hit.code}${hit.industry ? ` · ${hit.industry}` : ""}`;
+        button.append(title, detail);
+        button.addEventListener("click", () => loadKline(hit.code, hit.name));
+        fragment.appendChild(button);
+      });
+      suggestions.replaceChildren(fragment);
+      suggestions.hidden = !hits.length;
+    } catch (error) {
+      if (ownRequest !== searchRequestNo) return;
+      const message = document.createElement("div");
+      message.className = "suggestion-status";
+      message.textContent = `搜索失败：${error.message}`;
+      suggestions.replaceChildren(message);
+      suggestions.hidden = false;
+    }
+  }
+
+  query.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(searchStocks, 180);
+  });
+  query.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const first = suggestions.querySelector("button");
+      if (first) first.click();
+      else {
+        const raw = query.value.trim().toLowerCase();
+        if (/^(?:sh|sz|bj)?\d{6}$/.test(raw)) loadKline(raw, "");
+      }
+    }
+  });
+  adjust.addEventListener("change", () => currentCode && loadKline(currentCode, currentName));
+  days.addEventListener("change", () => currentCode && loadKline(currentCode, currentName));
+  watchButton.addEventListener("click", async () => {
+    if (!currentCode) return;
+    const watching = watchCodes.has(currentCode);
+    try {
+      await jsonFetch(watching ? "/api/watchlist/remove" : "/api/watchlist/add", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: currentCode })
+      });
+      if (watching) watchCodes.delete(currentCode); else watchCodes.add(currentCode);
+      updateWatchButton();
+    } catch (error) {
+      status.textContent = `自选操作失败：${error.message}`;
+    }
+  });
+  window.addEventListener("resize", () => chart.resize());
+
+  const initialCode = new URLSearchParams(location.search).get("code");
+  loadWatchlist().then(() => {
+    if (initialCode) loadKline(initialCode, "");
+    else if (watchCodes.size) loadKline(watchCodes.values().next().value, "");
+  });
+})();
+</script>
+</body>
+</html>

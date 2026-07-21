@@ -1,0 +1,103 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>询转/定增进度 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1400px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .sub{color:#94a3b8;font-size:13px;line-height:1.6;margin-bottom:12px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  input,select,button{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:7px;padding:6px 10px;font-size:13px}
+  button{cursor:pointer}.active{background:#1d4ed8;border-color:#1d4ed8}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin:12px 0}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{border:1px solid #1e293b;padding:5px 8px;text-align:left;white-space:nowrap}
+  th{background:#111827;color:#94a3b8;cursor:pointer;user-select:none}
+  td.num{text-align:right}.muted{color:#64748b}.warn{color:#fbbf24}.bad{color:#fca5a5}.ok{color:#86efac}
+  .pill{display:inline-block;border-radius:999px;padding:1px 7px;background:#1e293b;color:#cbd5e1;font-size:11px}
+  .scroll{overflow:auto;max-height:72vh}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+  .stat{background:#111827;border:1px solid #334155;border-radius:8px;padding:6px 9px;color:#cbd5e1;font-size:12px}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <div class="hd">询转/定增进度</div>
+  <div class="sub">聚合本地公告缓存，展示预案、董事会、股东会、批文、发行/转让、解禁时间。点击任意表头排序。</div>
+  <div class="bar">
+    <button id="tab-transfer" class="active" onclick="setTab('transfer')">询转/协转</button>
+    <button id="tab-placement" onclick="setTab('placement')">定增</button>
+    <input id="q" placeholder="搜索代码/名称/标题" oninput="render()"/>
+    <select id="risk" onchange="render()"><option value="">全部状态</option><option value="near">90天内解禁</option><option value="past">已过解禁</option><option value="nodate">无解禁日</option></select>
+    <span id="st" class="muted">加载中...</span>
+  </div>
+  <div id="stats" class="stats"></div>
+  <div class="card"><div id="tbl" class="scroll"></div></div>
+</div>
+<script>
+let DATA={transfer:[],placement:[]}, SUMMARY={}, TAB="transfer", SORT={k:"days_to_unlock",dir:1};
+const COLS=[
+  ["kind","类型"],["code","代码"],["name","名称"],["plan_date","预案时间"],["board_date","董事会时间"],
+  ["shareholder_date","股东会时间"],["approval_date","批文时间"],["issue_date","发行/转让时间"],
+  ["issue_price","价格"],["unlock_date","解禁时间"],["days_to_unlock","距解禁天数"],["status","状态"],
+  ["dataset","来源"],["title","公告标题"]
+];
+function esc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function setTab(t){TAB=t;document.getElementById("tab-transfer").className=t==="transfer"?"active":"";document.getElementById("tab-placement").className=t==="placement"?"active":"";render()}
+function sortBy(k){if(SORT.k===k)SORT.dir*=-1;else SORT={k,dir:1};render()}
+function val(x,k){let v=x[k]; if(v===null||v===undefined||v==="") return ""; return v}
+function cmp(a,b){
+  const k=SORT.k, av=val(a,k), bv=val(b,k);
+  const an=Number(av), bn=Number(bv);
+  if(av!==""&&bv!==""&&!Number.isNaN(an)&&!Number.isNaN(bn)) return (an-bn)*SORT.dir;
+  return String(av).localeCompare(String(bv),"zh-CN")*SORT.dir;
+}
+function rowClass(x){
+  const d=x.days_to_unlock;
+  if(Number.isInteger(d)&&d>=0&&d<=30)return "bad";
+  if(Number.isInteger(d)&&d>=0&&d<=90)return "warn";
+  if(Number.isInteger(d)&&d<0)return "muted";
+  return "";
+}
+function filterRows(rows){
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const risk=document.getElementById("risk").value;
+  return rows.filter(x=>{
+    const text=JSON.stringify(x).toLowerCase();
+    if(q&&!text.includes(q))return false;
+    const d=x.days_to_unlock;
+    if(risk==="near"&&!(Number.isInteger(d)&&d>=0&&d<=90))return false;
+    if(risk==="past"&&!(Number.isInteger(d)&&d<0))return false;
+    if(risk==="nodate"&&x.unlock_date)return false;
+    return true;
+  });
+}
+function render(){
+  const rows=filterRows([...(DATA[TAB]||[])]).sort(cmp);
+  const s=SUMMARY[TAB]||{};
+  document.getElementById("st").textContent=`${TAB==="transfer"?"询转/协转":"定增"} ${rows.length} 条`;
+  document.getElementById("stats").innerHTML=[
+    ["总记录",s.n],["最早公告",s.earliest_ann_date||"-"],["最新公告",s.latest_ann_date||"-"],
+    ["最早解禁",s.earliest_unlock_date||"-"],["最晚解禁",s.latest_unlock_date||"-"],
+    ["已过期",s.past_unlock],["90天内",s.near_unlock_90d],["90天后",s.future_unlock]
+  ].map(x=>`<span class="stat">${x[0]} <b>${x[1]??"-"}</b></span>`).join("");
+  let h="<table><thead><tr>"+COLS.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}${SORT.k===c[0]?(SORT.dir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr></thead><tbody>";
+  h+=rows.map(x=>"<tr>"+COLS.map(c=>{
+    let v=x[c[0]];
+    if(c[0]==="title"&&x.url)v=`<a href="${esc(x.url)}" target="_blank" style="color:#7dd3fc">${esc(x.title||"公告")}</a>`;
+    else if(c[0]==="days_to_unlock")v=`<span class="${rowClass(x)}">${v===null||v===undefined?"":v}</span>`;
+    else if(c[0]==="status")v=v?`<span class="pill">${esc(v)}</span>`:"";
+    else v=esc(v);
+    return `<td${c[0]==="days_to_unlock"||c[0]==="issue_price"?' class="num"':""}>${v||"<span class='muted'>-</span>"}</td>`;
+  }).join("")+"</tr>").join("");
+  document.getElementById("tbl").innerHTML=h+"</tbody></table>";
+}
+fetch("/api/placement_transfer").then(r=>r.json()).then(d=>{DATA.transfer=d.transfer||[];DATA.placement=d.placement||[];SUMMARY=d.summary||{};render()}).catch(e=>{document.getElementById("st").textContent="加载失败: "+e});
+</script>
+</body>
+</html>
+

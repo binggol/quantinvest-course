@@ -1,0 +1,256 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>瓶颈链/卖铲子 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1150px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px;background:linear-gradient(90deg,#34d399,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .frame{color:#94a3b8;font-size:12.5px;margin-bottom:10px;background:#0f172a;padding:9px 12px;border-radius:8px;border:1px solid #1e293b;line-height:1.7}
+  .frame b{color:#34d399}
+  .themes{margin:10px 0}
+  .themes button{font-size:13px;padding:6px 12px;margin:3px 4px 3px 0;background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:16px;cursor:pointer}
+  .themes button:hover{background:#334155}
+  .inrow{margin:8px 0}
+  .inrow input{font-size:14px;padding:7px 10px;width:260px;background:#0b1220;color:#e2e8f0;border:1px solid #334155;border-radius:6px}
+  .inrow button{font-size:14px;padding:7px 16px;margin-left:6px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer}
+  .st{color:#94a3b8;font-size:13px;margin-left:8px}
+  .meta{color:#cbd5e1;font-size:13.5px;margin:12px 0;line-height:1.8;background:#0b1220;padding:10px 13px;border-radius:8px;border:1px solid #1e293b}
+  .meta .lab{color:#60a5fa;font-weight:700}
+  .node{margin:14px 0;border:1px solid #1e293b;border-radius:10px;overflow:hidden}
+  .nodehd{background:#13233b;padding:9px 13px;font-size:14.5px;font-weight:700;color:#fbbf24}
+  .nodehd .sc{font-size:12px;color:#f87171;font-weight:400;margin-left:8px}
+  .nodehd .ct{font-size:12px;color:#94a3b8;font-weight:400;display:block;margin-top:3px}
+  details.tnode{border-left:2px solid #1e293b;padding:4px 0 4px 10px;margin:5px 0}
+  details.tnode>summary{cursor:pointer;padding:4px 0;list-style:none}
+  details.tnode>summary::-webkit-details-marker{display:none}
+  details.tnode>summary::before{content:'▸ ';color:#475569}
+  details.tnode[open]>summary::before{content:'▾ ';color:#475569}
+  .analysis{font-size:12.5px;line-height:1.75;color:#cbd5e1;background:#0b1220;border:1px solid #1e293b;border-radius:7px;padding:8px 11px;margin:5px 0}
+  .ts5{padding:9px 13px;background:#0b1220;border-bottom:1px solid #1e293b;font-size:12.5px;line-height:1.75;color:#cbd5e1;border-radius:7px;border:1px solid #1e293b;margin:5px 0}
+  .ts5 .t5{margin-bottom:8px}
+  .ts5 .t5 b{color:#60a5fa}.ts5 .s6 b{color:#fbbf24}
+  .ts5 .s6{color:#fcd34d}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border-bottom:1px solid #1e293b;padding:6px 8px;text-align:right;vertical-align:top}
+  th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
+  th{color:#94a3b8;background:#0f172a;position:sticky;top:0}
+  .up{color:#f87171}.dn{color:#34d399}
+  .tx{text-align:left;color:#cbd5e1;font-size:12px;line-height:1.6;max-width:340px}
+  .sig{color:#fcd34d}
+  .ind{font-size:11px;color:#64748b}
+  table.pt{width:auto;font-size:11px;border:0;margin:0}
+  table.pt th{position:static;background:transparent;color:#64748b;font-weight:400;padding:1px 6px;border:0;text-align:right}
+  table.pt td{padding:1px 6px;border:0;text-align:right;color:#cbd5e1}
+  table.pt td:first-child,table.pt th:first-child{text-align:left;color:#94a3b8}
+  table.sg{width:auto;font-size:11px;border:0;margin:0}
+  table.sg td{padding:1px 6px;border:0;text-align:right;color:#cbd5e1;white-space:nowrap}
+  table.sg td:first-child{text-align:left;color:#94a3b8;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+  .hist{margin-top:22px}
+  .hist h3{font-size:15px;color:#cbd5e1;margin:6px 0}
+  details summary{cursor:pointer;color:#60a5fa;font-size:13px;margin:6px 0}
+  .idx button{font-size:12px;padding:3px 9px;margin:2px;background:#0b1220;border:1px solid #334155;color:#93c5fd;border-radius:5px;cursor:pointer}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div class="hd">⛏️ 瓶颈链 / 卖铲子分析</div>
+    <div class="frame">
+      自上而下框架: <b>①大技术建设</b> → <b>②架构变化</b> → <b>③拆BOM/工艺链</b> → <b>④找窄上游层</b>(产能/资质/材料/设备造成稀缺) → <b>⑤战略控制力 vs 市场估值</b> → <b>⑥等验证信号</b>(订单/产能预留/涨价/客户验证/收入结构变化)。
+      LLM 走框架找窄环节+个股, tushare 落地验证(毛利率=定价权、合同负债=订单、在建工程=产能、主营构成=收入结构、PE/PB=估值)。
+      <span style="color:#f87171">⚠️ LLM 可能张冠李戴(代码已校验真实, 但业务归属看「行业/主营」自行核对)。</span>
+    </div>
+    <div class="themes" id="themes"></div>
+    <div class="inrow">
+      <input id="tin" placeholder="输入大技术主题, 如: 可控核聚变"/>
+      <button id="run-btn" type="button">🔍 分析</button>
+      <span class="st" id="st"></span>
+    </div>
+    <div class="idx" id="idx"></div>
+    <div id="result"></div>
+    <div class="hist">
+      <details><summary>📋 历史记录表 (运行时间 / 主题 / 窄环节 / 个股 / 落地指标)</summary>
+        <div id="hist"></div>
+      </details>
+    </div>
+  </div>
+<script>
+let CUR="";
+function esc(value){
+  const s=(value===null||value===undefined)?'':String(value);
+  const entities={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+  return s.replace(/[&<>"']/g,ch=>entities[ch]);
+}
+function asList(value){return Array.isArray(value)?value:[];}
+function nl2br(s){return esc(s).replace(/\n/g,'<br>');}
+function fnum(v,suf){return (v===null||v===undefined||v==="")?'<span style="color:#475569">-</span>':(esc(v)+esc(suf||''));}
+function ycol(v){
+  if(v===null||v===undefined||v==='')return fnum(v);
+  const n=Number(v);
+  if(!Number.isFinite(n))return fnum(null);
+  return `<span class="${n>=0?'up':'dn'}">${n>=0?'+':''}${esc(v)}%</span>`;
+}
+function segHtml(s){
+  s=s||{};
+  const segs=asList(s.segments);
+  if(!segs||!segs.length)return '<span style="color:#475569">'+(s.mainbz?esc(s.mainbz):'无主营拆分')+'</span>';
+  let hd='';
+  if(s.rel_share!=null) hd+=`<span style="color:#34d399;font-weight:700">相关业务占比 ${esc(s.rel_share)}%</span>`;
+  if(s.rel_rev!=null) hd+=` <span style="color:#94a3b8">· 规模 ${esc(s.rel_rev)}亿</span>`;
+  if(s.revenue!=null) hd+=` <span style="color:#64748b">· 总营收 ${esc(s.revenue)}亿</span>`;
+  let r=`<div style="font-size:10px;margin-bottom:2px">${hd}</div><div style="color:#64748b;font-size:10px;margin-bottom:2px">主营构成${s.seg_period?'·'+esc(s.seg_period):''} (占比/同比/毛利)</div><table class="sg">`;
+  segs.forEach(g=>{
+    g=g||{};
+    const hi=g.related;
+    r+=`<tr${hi?' style="background:rgba(52,211,153,0.14)"':''}><td>${hi?'★ ':''}${esc(g.item)}</td><td>${fnum(g.share,'%')}</td><td>${ycol(g.yoy)}</td><td>${fnum(g.gm,'%')}</td></tr>`;
+  });
+  return r+'</table>';
+}
+function perTbl(periods){
+  periods=asList(periods);
+  if(!periods.length)return '<span style="color:#475569">无财务</span>';
+  let r='<table class="pt"><tr><th></th><th>扣非增速</th><th>毛利率</th><th>ROE</th><th>订单增速</th><th>在建增速</th></tr>';
+  periods.forEach(p=>{ p=p||{}; r+=`<tr><td>${esc(p.label)}</td><td>${ycol(p.dt_yoy)}</td><td>${fnum(p.gm,'%')}</td><td>${fnum(p.roe,'%')}</td><td>${ycol(p.order_yoy)}</td><td>${ycol(p.cip_yoy)}</td></tr>`; });
+  return r+'</table>';
+}
+function load(theme){
+  fetch('/api/thesis'+(theme?('?theme='+encodeURIComponent(theme)):'')).then(r=>r.json()).then(d=>{
+    // 预置主题
+    const themesEl=document.getElementById('themes');
+    themesEl.replaceChildren();
+    asList(d.preset).forEach(value=>{
+      const themeValue=(value===null||value===undefined)?'':String(value);
+      const button=document.createElement('button');
+      button.type='button';
+      button.textContent=themeValue;
+      button.addEventListener('click',()=>run(themeValue));
+      themesEl.appendChild(button);
+    });
+    // 已分析索引
+    const idx=asList(d.index);
+    const idxEl=document.getElementById('idx');
+    idxEl.replaceChildren();
+    if(idx.length){
+      idxEl.appendChild(document.createTextNode('已分析: '));
+      idx.forEach(value=>{
+        const x=value||{};
+        const themeValue=(x.theme===null||x.theme===undefined)?'':String(x.theme);
+        const button=document.createElement('button');
+        button.type='button';
+        button.appendChild(document.createTextNode(themeValue+' '));
+        const detail=document.createElement('span');
+        detail.style.color='#64748b';
+        detail.textContent=`${String(x.ts||'').slice(5)}·${x.n_leaves||0}赛道/${x.n_stocks||0}股`;
+        button.appendChild(detail);
+        button.addEventListener('click',()=>load(themeValue));
+        idxEl.appendChild(button);
+      });
+    }
+    renderResult(d.result);
+    renderHist(d.log||[]);
+  });
+}
+function stockTable(stocks){
+  stocks=asList(stocks);
+  if(!stocks.length)return '<div style="color:#64748b;font-size:12px;margin:6px 0">无落地个股</div>';
+  let h=`<table><thead><tr><th>代码</th><th>名称</th><th>申万细分行业</th><th>三年一期 扣非/毛利/ROE/订单/在建</th><th>PE</th><th>PB</th><th>主营构成(相关业务★高亮)</th></tr></thead><tbody>`;
+  stocks.forEach(s=>{
+    s=s||{};
+    const bad = s.tier==='存疑';
+    const tb = s.tier==='核心'?'<span style="color:#34d399;font-size:10px;font-weight:700">●核心</span>':'<span style="color:#f87171;font-size:10px">⚠存疑</span>';
+    const srcb = s.src==='LLM'?'<span style="color:#a78bfa;font-size:10px">LLM</span>':'';
+    h+=`<tr${bad?' style="background:rgba(248,113,113,0.12)"':''}><td>${esc(s.code)} ${srcb}</td><td>${esc(s.name)} ${tb}</td><td class="ind"><span style="color:#93c5fd">${esc(s.sw||'-')}</span><br><span style="color:#64748b">${esc(s.industry)}</span></td>`+
+       `<td>${perTbl(s.periods)}</td>`+
+       `<td>${fnum(s.pe_ttm?Math.round(s.pe_ttm):null)}</td><td>${fnum(s.pb?Math.round(s.pb*10)/10:null)}</td>`+
+       `<td class="tx">${bad?`<span style="color:#f87171">⚠️${esc(s.warn||'业务存疑')}</span><br>`:''}${segHtml(s)}</td></tr>`;
+  });
+  return h+'</tbody></table>';
+}
+function renderNode(node, depth){
+  node=node||{};
+  const stocks=asList(node.stocks);
+  const children=asList(node.children);
+  const roleb = node.role?`<span style="color:#a78bfa;font-size:11px">[${esc(node.role)}]</span> `:'';
+  const cnt = node.is_leaf
+      ? `<span style="color:#34d399;font-size:11px">${stocks.length}股</span>`
+      : `<span style="color:#64748b;font-size:11px">${children.length}子环节</span>`;
+  const col = depth===0?'#34d399':(depth===1?'#60a5fa':'#cbd5e1');
+  const fs = Math.max(13, 17-depth);
+  let h=`<details ${depth<=1?'open':''} class="tnode" style="margin-left:${depth*12}px">`;
+  h+=`<summary style="font-size:${fs}px;font-weight:${depth<2?700:600};color:${col}">${roleb}${esc(node.name)} ${cnt}</summary>`;
+  if(node.analysis) h+=`<div class="analysis">${nl2br(node.analysis)}</div>`;
+  if(node.is_leaf){
+    if(node.scarcity||node.controller) h+=`<div class="ct" style="margin:4px 0">稀缺: ${esc(node.scarcity||'')} · 掌控: ${esc(node.controller||'')}${(node.sw_l3||[]).length?' · 申万: '+esc((node.sw_l3||[]).join('/')):''}${(node.keywords||[]).length?' · 关键词: '+esc((node.keywords||[]).join('/')):''}</div>`;
+    if(node.thesis||node.signal){
+      h+=`<div class="ts5">`;
+      if(node.thesis) h+=`<div class="t5"><b>⑤ 战略控制力 vs 估值</b><br>${nl2br(node.thesis)}</div>`;
+      if(node.signal) h+=`<div class="s6"><b>⑥ 验证信号</b><br>${nl2br(node.signal)}</div>`;
+      h+=`</div>`;
+    }
+    h+=stockTable(stocks);
+  } else {
+    children.forEach(c=>{ h+=renderNode(c, depth+1); });
+  }
+  return h+'</details>';
+}
+function renderResult(r){
+  const el=document.getElementById('result');
+  if(!r||!r.tree){el.innerHTML='<div class="meta">选择上方主题或输入新主题开始分析(产业链多轮递归分析, 约几分钟)。</div>';return;}
+  CUR=r.theme;
+  let h=`<div class="meta"><span class="lab">产业链树:</span> <b style="color:#e2e8f0">${esc(r.theme)}</b> <span style="color:#64748b;font-size:12px">· ${esc(r.ts)} · ${esc(r.n_nodes||0)}环节 / ${esc(r.n_leaves||0)}细分赛道 / ${esc(r.n_stocks||0)}股 · 估值@${esc(r.trade_date||'-')}</span><br><span style="color:#64748b;font-size:12px">逐层点开 ▸ 上中下游产业链, 叶子赛道含落地个股</span></div>`;
+  h+=renderNode(r.tree, 0);
+  el.innerHTML=h;
+}
+function renderHist(log){
+  log=asList(log);
+  if(!log.length){document.getElementById('hist').innerHTML='<div class="meta">暂无记录。</div>';return;}
+  let h='<table><thead><tr><th>运行时间</th><th>主题</th><th>窄环节</th><th>个股</th><th>毛利YoY</th><th>订单YoY</th><th>PE</th><th>验证信号</th></tr></thead><tbody>';
+  h+=log.map(value=>{const x=value||{};return `<tr><td>${esc(x.ts)}</td><td>${esc(x.theme)}</td><td>${esc(x.node)}</td><td>${esc(x.name)}(${esc(x.code)})</td><td>${ycol(x.gm_yoy)}</td><td>${ycol(x.order_yoy)}</td><td>${fnum(x.pe_ttm?Math.round(x.pe_ttm):null)}</td><td class="tx">${nl2br(x.signal)}</td></tr>`;}).join('');
+  document.getElementById('hist').innerHTML=h+'</tbody></table>';
+}
+function run(theme){
+  theme = theme || document.getElementById('tin').value.trim();
+  if(!theme){document.getElementById('st').textContent='请输入主题';return;}
+  const st=document.getElementById('st');
+  st.textContent='提交中…';
+  fetch('/api/thesis/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme})})
+   .then(r=>r.json()).then(d=>{
+     st.textContent=d.message||'';
+     if(!d.ok)return;
+     poll(theme);
+   });
+}
+function poll(theme){
+  const st=document.getElementById('st');let n=0;
+  const t=setInterval(()=>{
+    n++;
+    fetch('/api/thesis/status').then(r=>r.json()).then(s=>{
+      if(s.theme===theme && s.state==='done'){clearInterval(t);st.textContent='✅ 完成';load(theme);}
+      else if(s.theme===theme && s.state==='error'){clearInterval(t);st.textContent='❌ '+(s.msg||'失败');}
+      else st.textContent=`分析中…(${n*4}s) ${s.msg||''}`;
+    });
+    if(n>60){clearInterval(t);st.textContent='超时, 稍后手动刷新';}
+  },4000);
+}
+// 跨页面切换/刷新后, 若 PC 仍在跑某主题的瓶颈链分析, 自动恢复进度显示 (状态由 PC 回写, 服务端持久).
+function resumeThesis(){
+  fetch('/api/thesis/status').then(r=>r.json()).then(s=>{
+    if(s && s.state==='running' && s.theme){
+      const st=document.getElementById('st');
+      if(st) st.textContent='分析中…「'+s.theme+'」'+(s.msg||'');
+      poll(s.theme);
+    }
+  }).catch(()=>{});
+}
+document.getElementById('run-btn').addEventListener('click',()=>run());
+document.getElementById('tin').addEventListener('keydown',event=>{
+  if(event.key==='Enter')run();
+});
+load();
+resumeThesis();
+</script>
+</body>
+</html>

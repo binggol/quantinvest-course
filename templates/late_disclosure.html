@@ -1,0 +1,59 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>年报晚披露 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:920px;margin:0 auto;padding:14px}
+  .hero{background:linear-gradient(90deg,#1e3a5f,#0f172a);border:1px solid #2a4a6a;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+  .hero .big{font-size:22px;font-weight:800}.hero .sub{color:#94a3b8;font-size:12px;margin-top:4px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:13px 16px;margin-bottom:12px}
+  .empty{color:#94a3b8;font-size:13.5px;padding:10px 4px;line-height:1.8}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid #1e293b;padding:6px 9px;text-align:left}
+  th{color:#94a3b8;font-weight:600}
+  .sz{font-size:11px;padding:1px 7px;border-radius:7px;background:#1e293b;color:#a5b4fc}
+  .green{color:#86efac}
+  .meta{color:#64748b;font-size:12px;margin-top:6px;line-height:1.7}
+  .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:8px;margin-left:6px}
+  .on{background:#14532d;color:#86efac}.off{background:#3a2a08;color:#fbbf24}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div class="hero">
+      <div class="big">📅 年报晚披露 · 小/中盘信号 <span id="season-badge"></span></div>
+      <div class="sub">验证: 年报晚披露−早披露 T+10超额 <b class="green">+1.69%</b> / IC 0.073 / 2022-25<b class="green">四年全正</b> / 过size关(小盘+2.1%中盘+2.1%, 大盘无效)</div>
+    </div>
+    <div id="body"><div class="card"><div class="empty">加载中…</div></div></div>
+    <div class="card" style="background:#0d1a14;border-color:#1f3a2a">
+      <div style="font-weight:700;color:#86efac;margin-bottom:5px">📖 怎么用 / 为什么有效</div>
+      <div class="meta">
+        <b>机制</b>: 年报早披露的票=好消息1月就发预告了→披露时利好已price-in(见光死, 被抢跑腿吃过); <b>晚披露</b>的小/中盘没被抢跑过→年报披露才释放信息→正漂移。<br>
+        <b>操作</b>: 年报季(每年1-4月), 买<b>实际披露日处于全市场后40%(晚)、且非大盘(小/中盘)</b>的股票, 持有~10交易日。<br>
+        <b>限定</b>: ① 仅小/中盘有效(大盘无效, 非纯size代理); ② <b>仅年报季有标的</b>, 其余时间空窗; ③ 小盘流动性成本要扣, 分批慢买。<br>
+        <b>验证脚本</b>: gate_disclosure_bytype.py (一/中/三季报都不如年报干净, 仅年报四年全正)。
+      </div>
+    </div>
+  </div>
+<script>
+fetch("/api/late_disclosure").then(r=>r.json()).then(d=>{
+  const sb=document.getElementById("season-badge");
+  sb.innerHTML = d.in_season ? '<span class="badge on">年报季·激活</span>' : '<span class="badge off">非年报季·空窗</span>';
+  const body=document.getElementById("body");
+  if(!d.in_season || !(d.items||[]).length){
+    body.innerHTML = '<div class="card"><div class="empty">'+(d.msg||d.message||'当前空窗。年报季(每年1-4月)本页自动列出晚披露的小/中盘股。')+'<br><br>报告期: <b>'+(d.rpt_period||'-')+'</b> · 更新 '+(d.updated||'-')+'</div></div>';
+    return;
+  }
+  let h='<div class="card"><div style="font-weight:700;margin-bottom:6px">晚披露小/中盘清单 ('+d.n+'只) · 截至 '+(d.as_of||'-')+'</div>';
+  h+='<table><thead><tr><th>代码</th><th>名称</th><th>行业</th><th>流通市值</th><th>披露日</th><th>类型</th></tr></thead><tbody>';
+  h+=d.items.map(x=>'<tr><td style="color:#64748b;font-size:12px">'+x.code+'</td><td style="font-weight:600">'+x.name+(x.cfo_audit_flag?' <span title="'+(x.cfo_audit_reason||'')+': 晚披露可能是程序性延误(换CFO/审计)而非业绩超预期, 标记不剔除人工判断" style="color:#fb923c;font-size:11px">⚠️'+(x.cfo_audit_reason||'变更')+'</span>':'')+'</td><td style="color:#94a3b8;font-size:12px">'+(x.industry||'')+'</td><td>'+x.circ_mv_yi+'亿</td><td style="color:#94a3b8">'+x.discl_date+'</td><td><span class="sz">'+x.size+'</span></td></tr>').join('');
+  h+='</tbody></table></div>';
+  body.innerHTML=h;
+}).catch(e=>{document.getElementById("body").innerHTML='<div class="card"><div class="empty">加载失败</div></div>';});
+</script>
+</body>
+</html>

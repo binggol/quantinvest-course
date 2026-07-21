@@ -1,0 +1,168 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>quantinvest · 下单执行</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+.tr-wrap{padding:10px;max-width:1320px}
+.tr-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.tr-bar button{font-size:13px;padding:5px 14px}#tr-status{color:#94a3b8;font-size:12px}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.reg-badge{font-size:24px;font-weight:700;padding:8px 18px;border-radius:10px}
+.reg-VAL{background:#0c2a1a;color:#34d399;border:1px solid #14532d}.reg-MOM{background:#2a1408;color:#fb923c;border:1px solid #7c2d12}
+.rebal{margin-top:10px;padding:8px 14px;border-radius:8px;font-size:13px;background:#0b1220;border:1px solid #1e293b;color:#cbd5e1}.rebal.due{background:#1f1604;border-color:#92400e;color:#fcd34d}
+.sum{display:flex;gap:24px;flex-wrap:wrap;margin:6px 0 2px}.sum .b{font-size:13px;color:#cbd5e1}.sum .b b{font-size:20px}
+h2.sec{font-size:15px;margin:18px 0 8px}
+table.tb{width:100%;border-collapse:collapse;font-size:13px}
+table.tb th,table.tb td{padding:6px 10px;border-bottom:1px solid #1e293b;text-align:right}
+table.tb th{color:#94a3b8;background:#0f172a}table.tb td.l,table.tb th.l{text-align:left}
+.buy h2{color:#f87171}.sell h2{color:#34d399}.hold h2{color:#94a3b8}
+.no{color:#fcd34d;font-size:11px;background:#1f1604;border:1px solid #92400e;padding:1px 6px;border-radius:6px}
+.ok{color:#22c55e;font-size:11px}
+.warn{background:#1f1604;border:1px solid #92400e;color:#fcd34d;font-size:12px;padding:10px 14px;border-radius:8px;line-height:1.7;margin-top:14px}
+.muted{color:#64748b;font-size:12px}
+table.tb th small{display:block;color:#475569;font-weight:400;font-size:10px}
+.fser{display:inline-flex;gap:7px;justify-content:flex-end;font-size:12px;font-variant-numeric:tabular-nums}
+.fser span{min-width:38px;text-align:right}
+.fser .pos{color:#f87171}.fser .neg{color:#34d399}.fser .lo{color:#475569}
+td.fcell{white-space:nowrap}
+.fmsg{color:#64748b;font-size:11px}
+</style>
+</head>
+<body>
+<header class="screen-header">
+  <h1>📈 quantinvest</h1>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>从 Pro 篮子派生今日 买/卖/持有 清单。<b>只在季度调仓日有动作</b>;照单执行前自查停牌/涨停。</div></details>
+  <div class="meta">沪深300 季频对冲策略 · 本季 <b>买入/卖出/继续持有</b> 清单(派生自策略顾问Pro篮子)</div>
+</header>
+
+<div class="tr-wrap">
+  <div class="tr-bar">
+    <button id="refresh">🔄 拉最新数据·重算</button><span id="tr-status"></span>
+  </div>
+  <div id="empty" class="muted" style="padding:20px;">还没有结果。先去「策略顾问Pro」点重算,或在此点「🔄」。</div>
+
+  <div id="result" style="display:none;">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+        <div id="reg-badge" class="reg-badge"></div>
+        <div id="reg-desc" class="muted" style="font-size:13px"></div>
+      </div>
+      <div id="rebal" class="rebal"></div>
+      <div class="sum" id="sum"></div>
+    </div>
+
+    <div class="muted" style="margin:2px 0 10px">基本面三列为「三年一期」(最近3年报+最新一期),从左到右<b>旧→新</b>;扣非同比为扣非净利润同比增速,毛利率/ROE为当期值(%)。<span id="fund-status"></span></div>
+
+    <div class="buy"><h2 class="sec">🟢 买入清单 <span class="muted" id="buy-meta"></span></h2>
+      <table class="tb"><thead><tr><th class="l">代码</th><th class="l">名称</th><th>目标权重</th><th class="l">可买?</th><th class="l">解禁/协转</th><th class="l">资金流</th><th>扣非同比<small>三年一期 旧→新</small></th><th>毛利率%<small>三年一期 旧→新</small></th><th>ROE%<small>三年一期 旧→新</small></th></tr></thead><tbody id="buy-rows"></tbody></table></div>
+
+    <div class="sell"><h2 class="sec">🔴 卖出清单 <span class="muted" id="sell-meta"></span></h2>
+      <table class="tb"><thead><tr><th class="l">代码</th><th class="l">名称</th><th class="l">动作</th><th class="l">解禁/协转</th><th class="l">资金流</th><th>扣非同比<small>三年一期 旧→新</small></th><th>毛利率%<small>三年一期 旧→新</small></th><th>ROE%<small>三年一期 旧→新</small></th></tr></thead><tbody id="sell-rows"></tbody></table></div>
+
+    <div class="hold"><h2 class="sec">⚪ 继续持有 <span class="muted" id="hold-meta"></span></h2>
+      <table class="tb"><thead><tr><th class="l">代码</th><th class="l">名称</th><th>目标权重</th><th class="l">解禁/协转</th><th class="l">资金流</th><th>扣非同比<small>三年一期 旧→新</small></th><th>毛利率%<small>三年一期 旧→新</small></th><th>ROE%<small>三年一期 旧→新</small></th></tr></thead><tbody id="hold-rows"></tbody></table></div>
+
+    <div class="warn" id="caveat"></div>
+
+    <h2 class="sec" style="margin-top:18px">🕘 篮子变更历史 <span class="muted" style="font-weight:400;font-size:12px">(只在调仓换股时记一条;平时季频持有不变=正常)</span></h2>
+    <div id="trade-hist" style="color:#94a3b8">加载中…</div>
+  </div>
+</div>
+
+<script src="/static/unlock.js"></script>
+<script src="/static/kline_contract.js"></script>
+<script src="/static/money_flow_spark.js"></script>
+<script>
+function pct(x){return (x*100).toFixed(1)+"%";}
+function unlockCell(x){
+  return formatUnlockInfo(x);
+}
+function moneyOutflowCell(x){
+  const m=(x&&x.money_outflow)||{};
+  if(!m.status||m.status==="none")return '<span class="muted">—</span>';
+  const flowColor=v=>Number(v)>0?"#22c55e":(Number(v)<0?"#ef4444":"#94a3b8");
+  const label=m.status==="high"?"流出前10%":"流出前20%";
+  const net10=m.outflow_10d_yi==null?"-":Number(m.outflow_10d_yi).toFixed(2);
+  const days=(m.outflow_10d_daily||[]).map(d=>`<span style="color:${flowColor(d.outflow_net_yi)}">${String(d.date||"").slice(5)}:${d.outflow_net_yi==null?"-":Number(d.outflow_net_yi).toFixed(2)}</span>`).join(" / ");
+  const title=`${m.label||label}: 当日净流出${m.outflow_net_yi??"-"}亿, 15日净流出${net10}亿, 15日主力净额${m.main_net_10d_yi??"-"}亿, 15日净额/成交额${m.main_net_10d_ratio_pct??"-"}%, 流出分位${m.outflow_rank_pct??"-"}%, ${m.trade_date||""}`;
+  const spark=window.moneyFlowSparkHtml?moneyFlowSparkHtml(x.code||x.ts_code||x.symbol,m):"";
+  return `<span title="${title.replace(/"/g,'&quot;')}" style="color:${flowColor(m.outflow_10d_yi)};font-weight:600;font-size:12px">${label} · 15日${net10}亿</span><div style="color:#94a3b8;font-size:10px;line-height:1.35">日:${days||"-"}</div>${spark}`;
+}
+async function loadHist(){
+  try{ const d=await (await fetch("/api/trade/history")).json();
+    const hs=d.history||[]; const box=document.getElementById("trade-hist");
+    if(!hs.length){ box.innerHTML='<div style="font-size:12px">还没有历史(首次加载后开始记;之后每当篮子变化记一条)。</div>'; return; }
+    const nm=hs[0].names||{};
+    let h='<div style="font-size:12px;color:#64748b;margin-bottom:4px">共 '+d.n+' 次不同篮子。最近在上。"新增/移除"=相对上一次篮子的变化。</div>';
+    h+='<table class="tb"><thead><tr><th class="l">记录时间</th><th>数据日</th><th>regime</th><th>买/卖/持</th><th class="l">本次新增(+)</th><th class="l">本次移除(−)</th></tr></thead><tbody>';
+    h+=hs.map(x=>{const N=x.names||nm; const fmt=cs=>(cs&&cs.length)?cs.map(c=>(N[c]||c)).join('、'):'<span style="color:#475569">—</span>';
+      return '<tr><td class="l">'+x.ts+'</td><td>'+(x.as_of||'-')+'</td><td>'+(x.regime||'-')+'</td><td>'+x.n_buy+'/'+x.n_sell+'/'+x.n_hold+'</td>'
+        +'<td class="l" style="color:#86efac">'+fmt(x.added)+'</td><td class="l" style="color:#fca5a5">'+fmt(x.removed)+'</td></tr>';}).join('');
+    box.innerHTML=h+'</tbody></table>';
+  }catch(e){}
+}
+async function load(){
+  let d; try{ d=await (await fetch("/api/advisor-pro/result")).json(); }catch(e){ return; }
+  const t=d.trade;
+  if(!t || !t.items){ document.getElementById("empty").style.display="block"; document.getElementById("result").style.display="none"; return; }
+  document.getElementById("empty").style.display="none"; document.getElementById("result").style.display="block";
+  const reg=t.regime||(d.current&&d.current.regime)||"";
+  const rb=document.getElementById("reg-badge"); rb.textContent=(reg==="VAL"?"VAL 价值/防御腿":"MOM 动量/进攻腿"); rb.className="reg-badge "+(reg==="VAL"?"reg-VAL":"reg-MOM");
+  document.getElementById("reg-desc").innerHTML=(d.current&&d.current.overlay?("正交叠加: "+d.current.overlay):"");
+  const reb=document.getElementById("rebal");
+  reb.innerHTML="数据日 <b>"+(t.as_of||"")+"</b> · 下次调仓 <b>"+(t.next_rebalance||"")+"</b> · 上次清单 "+(t.prev_date||"无(首次)");
+  document.getElementById("sum").innerHTML=
+    '<div class="b">买入 <b style="color:#f87171">'+t.n_buy+'</b> 只</div>'+
+    '<div class="b">卖出 <b style="color:#34d399">'+t.n_sell+'</b> 只</div>'+
+    '<div class="b">持有 <b style="color:#94a3b8">'+t.n_hold+'</b> 只</div>'+
+    '<div class="b">每股目标权重 <b>'+pct(t.weight_each)+'</b></div>';
+  const buy=t.items.filter(i=>i.action==="买入"), sell=t.items.filter(i=>i.action==="卖出"), hold=t.items.filter(i=>i.action==="持有");
+  document.getElementById("buy-meta").textContent="("+buy.length+"只新进)";
+  document.getElementById("sell-meta").textContent="("+sell.length+"只剔出)";
+  document.getElementById("hold-meta").textContent="("+hold.length+"只续持)";
+  const fcells=c=>`<td class="fcell" data-fund="${c}" data-m="yoy"><span class="fmsg">…</span></td><td class="fcell" data-fund="${c}" data-m="gm"></td><td class="fcell" data-fund="${c}" data-m="roe"></td>`;
+  document.getElementById("buy-rows").innerHTML=buy.map(i=>`<tr><td class="l">${i.code}</td><td class="l">${i.name}</td><td>${pct(i.weight)}</td><td class="l">${i.buyable?'<span class="ok">✓可买</span>':'<span class="no">'+i.flags.join("/")+' 今日不可买</span>'}</td><td class="l">${unlockCell(i)}</td><td class="l">${moneyOutflowCell(i)}</td>${fcells(i.code)}</tr>`).join("")||'<tr><td class="l muted" colspan=9>无</td></tr>';
+  document.getElementById("sell-rows").innerHTML=sell.map(i=>`<tr><td class="l">${i.code}</td><td class="l">${i.name}</td><td class="l">清仓</td><td class="l">${unlockCell(i)}</td><td class="l">${moneyOutflowCell(i)}</td>${fcells(i.code)}</tr>`).join("")||'<tr><td class="l muted" colspan=8>无(上季无记录或无剔出)</td></tr>';
+  document.getElementById("hold-rows").innerHTML=hold.map(i=>`<tr><td class="l">${i.code}</td><td class="l">${i.name}</td><td>${pct(i.weight)}</td><td class="l">${unlockCell(i)}</td><td class="l">${moneyOutflowCell(i)}</td>${fcells(i.code)}</tr>`).join("")||'<tr><td class="l muted" colspan=8>无</td></tr>';
+  loadFundamentals(t.items.map(i=>i.code));
+  document.getElementById("caveat").innerHTML="⚠️ 季频信号(非日内择时):每季调仓日按此换仓,不盯盘。<br>权重为大致等权,可按资金微调。「今日不可买」(涨停/停牌/ST)请改日补买或剔除。<br>多头版=买这些当沪深300指数增强(承担市场涨跌);对冲版需另做空IF期货才是回测的市场中性alpha。盈亏自负,建议先模拟盘。";
+}
+// ── 内联「三年一期」基本面: 扣非净利同比 / 毛利率 / ROE, 自动随清单加载 ──
+const _fdCache={};
+function oldToNew(p){return (p||[]).slice().reverse();}  // 接口返回新→旧, 展示要旧→新
+function serYoy(p){return '<span class="fser">'+oldToNew(p).map(x=>{const v=x.dt_profit_yoy;return v==null?'<span class="lo">—</span>':'<span class="'+(v>=0?'pos':'neg')+'">'+(v>=0?'+':'')+v.toFixed(1)+'</span>';}).join('')+'</span>';}
+function serVal(p,k){return '<span class="fser">'+oldToNew(p).map(x=>{const v=x[k];return v==null?'<span class="lo">—</span>':'<span>'+v.toFixed(1)+'</span>';}).join('')+'</span>';}
+function fillRow(code,d){
+  const cells=document.querySelectorAll('td.fcell[data-fund="'+(window.CSS&&CSS.escape?CSS.escape(code):code)+'"]');
+  if(!cells.length)return;
+  if(!d||!d.found){cells.forEach((c,i)=>{c.innerHTML=i===0?'<span class="fmsg">'+((d&&d.message)||'无数据')+'</span>':'';});return;}
+  const p=d.periods||[];
+  cells.forEach(c=>{const m=c.getAttribute("data-m");
+    c.innerHTML = m==="yoy"?serYoy(p):(m==="gm"?serVal(p,"gross_margin"):serVal(p,"roe"));});
+}
+async function loadFundamentals(codes){
+  const uniq=[...new Set(codes)];
+  const need=uniq.filter(c=>!_fdCache[c]);
+  uniq.filter(c=>_fdCache[c]).forEach(c=>fillRow(c,_fdCache[c]));  // 已缓存的立即填
+  if(!need.length){document.getElementById("fund-status").textContent="";return;}
+  document.getElementById("fund-status").innerHTML='<span class="fmsg">基本面加载中('+need.length+'只)…</span>';
+  try{
+    const r=await (await fetch("/api/trade/fundamentals/batch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({codes:need})})).json();
+    const res=r.results||{};
+    Object.keys(res).forEach(c=>{_fdCache[c]=res[c];fillRow(c,res[c]);});
+    document.getElementById("fund-status").textContent="";
+  }catch(e){document.getElementById("fund-status").innerHTML='<span class="fmsg">基本面加载失败</span>';}
+}
+
+document.getElementById("refresh").onclick=async()=>{
+  document.getElementById("tr-status").textContent="已通知PC重算(约1-2分钟)...";
+  try{ const r=await (await fetch("/api/advisor-pro/request", {method:"POST"})).json(); document.getElementById("tr-status").textContent=r.message||""; }catch(e){}
+};
+load(); loadHist(); setInterval(()=>{load();loadHist();},30000);
+</script>
+</body>
+</html>

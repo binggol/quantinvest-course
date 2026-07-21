@@ -1,0 +1,29 @@
+diff --git a/gen_report.py b/gen_report.py
+--- a/gen_report.py
++++ b/gen_report.py
+@@ -333,15 +333,22 @@ def main():
+          f"近三年及一期(营收亿/扣非亿/毛利率%/ROE%/营收增速%/扣非增速%):\n"+
+          "\n".join(f"  {r['period']}: 营收{r['revenue']} 扣非{r['dedt']} 毛利率{r['gm']} ROE{r['roe']} 营收增速{r['rev_yoy']} 扣非增速{r['dedt_yoy']}" for r in fin_annual)+
+-         "\n主营拆分(最新年报, 业务:营收亿/占比%/毛利率%):\n"+
+-         "\n".join(f"  {r['item']}: {r['sales']}/{r['pct']}%/{r['gm']}%" for r in mainbz[:8])+
++         f"\n权威主营资料(来源:{business_source}):\n{business_ctx}\n"+
++         (f"\n招股书募投项目:\n{prospectus.get('fundraising','')}\n"
++          f"招股书竞争优势:\n{prospectus.get('advantages','')}\n"
++          f"招股书风险因素:\n{prospectus.get('risks','')}\n"
++          if prospectus else "")+
+          "\n同主营同行估值(名称:市值亿/PE-TTM/PB最新/ROE上年%/最新毛利率%):\n"+
+          "\n".join(f"  {p['name']}{'(本股)' if p['is_self'] else ''}: {p['mv']}/{p['pe']}/{p.get('pb_now')}/{p.get('roe_ly')}/{(p.get('gm_rows') or [{}])[-1].get('gm')}" for p in peers_val[:12])+
+          (("\n未来解禁:"+"; ".join(f"{u['date']}解禁{u['ratio']}%" for u in unlocks)) if unlocks else "")+
+          "\n请据此撰写该股研究报告的定性部分。")
+     print("调用LLM起草定性…",flush=True)
+     llm=llm_draft(ctx)
++    sources=([{"type":"prospectus","url":prospectus.get("source_url",""),
++               "name":prospectus.get("company_name","")}]
++             if prospectus else [])
+     out={"code":code,"c6":c6,"name":name,"updated":time.strftime("%Y-%m-%d %H:%M:%S"),
+          "as_of_px":opend[-1] if opend else "","period":pers[-1],
+          "overview":overview,"fin_annual":fin_annual,"fin_q":fin_q,"mainbz":mainbz,
+          "peers_val":peers_val,"peer_basis":peer_basis,"fc_years":fc_years,"broker_fc":broker_fc,
+-         "unlocks":unlocks,"holders":holders,"llm":llm}
++         "unlocks":unlocks,"holders":holders,"business_source":business_source,
++         "prospectus":prospectus,"sources":sources,"llm":llm}

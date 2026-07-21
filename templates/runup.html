@@ -1,0 +1,530 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>业绩抢跑 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<script src="/static/kline_contract.js"></script>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .sub{color:#94a3b8;line-height:1.7;margin-bottom:14px;font-size:13px}
+  .upd{color:#64748b;font-size:12px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+  .card h3{margin:0 0 8px;font-size:15px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  th{background:#111827;color:#94a3b8;font-weight:600}
+  .buy h3{color:#34d399} .sell h3{color:#f87171} .watch h3{color:#60a5fa}
+  .tag{font-size:11px;padding:1px 7px;border-radius:10px;background:#1e293b;color:#cbd5e1}
+  .empty{color:#94a3b8;padding:10px;font-size:13px}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;color:#cbd5e1;font-size:12.5px;line-height:1.7;margin-top:12px}
+  .warn{color:#fbbf24}
+  .riskbox{background:#111827;border:1px solid #334155;border-radius:10px;padding:10px 12px;margin:10px 0 14px;color:#cbd5e1;font-size:12.5px;line-height:1.7}
+  .riskpill{display:inline-block;padding:2px 8px;border-radius:999px;background:#1e293b;color:#cbd5e1;margin-right:6px}
+  .riskpill.high{background:#3f1d1d;color:#fca5a5}.riskpill.watch{background:#3b2f12;color:#fbbf24}.riskpill.none,.riskpill.low{background:#10251f;color:#86efac}
+  .riskbtn{background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:6px;padding:2px 7px;cursor:pointer;font-size:12px}
+  .chartbox{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px 12px;margin:10px 0 14px}
+  .chartbar{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#cbd5e1;font-size:13px;margin-bottom:6px}
+  #k-adjust-wrap{align-items:center;gap:5px;color:#94a3b8;font-size:12px}
+  #k-adjust{background:#111827;color:#cbd5e1;border:1px solid #334155;border-radius:6px;padding:3px 7px}
+  #kchart{height:360px;min-height:300px}
+  .kbtn{background:#0f2a3d;color:#7dd3fc;border:1px solid #25637f;border-radius:6px;padding:2px 7px;cursor:pointer;font-size:12px}
+  .ibtn{background:#12351f;color:#86efac;border:1px solid #1f7a3d;border-radius:6px;padding:2px 7px;cursor:pointer;font-size:12px}
+  .filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 10px;color:#94a3b8;font-size:12px}
+  .filterbar select,.filterbar input{background:#111827;color:#cbd5e1;border:1px solid #334155;border-radius:6px;padding:4px 7px;font-size:12px}
+  tr.repohit td{background:#172033}
+  .repobadge{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:999px;background:#3b2f12;color:#fbbf24;font-size:11px;font-weight:700;white-space:nowrap}
+  .repofocus{border-color:#92400e;background:#171923}
+  .focusgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-top:8px}
+  .focusitem{border:1px solid #334155;border-radius:8px;padding:7px 9px;background:#111827;font-size:12px;line-height:1.55;color:#cbd5e1}
+  .unlockfocus{border-color:#7f1d1d;background:#171923}
+  .unlockbadge{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:999px;background:#3f1d1d;color:#fca5a5;font-size:11px;font-weight:700;white-space:nowrap}
+  .unlocktable{max-height:520px;overflow:auto;margin-top:8px;border:1px solid #1e293b}
+  .unlocktable table{margin:0}
+  .unlocktable thead th{position:sticky;top:0;z-index:2}
+  .unlocktable th.sortable{cursor:pointer;user-select:none}
+  .unlocktable th.sortable:hover{color:#e2e8f0}
+  .unlocktable td:nth-child(8){white-space:normal;min-width:260px}
+  .segbtn{background:#111827;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:12px;margin-right:6px}
+  .segbtn.active{background:#3f1d1d;color:#fca5a5;border-color:#7f1d1d}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>【<span class="k">第二sleeve</span>】业绩预告抢跑。腿A:预增股财报前~6交易日建仓、前1日平;腿B:业绩好公告刚发→开盘买持5日。<span class="w">季节性</span>集中 4/8/10 月披露季,其余空仓;中证1000股指期货(IM)对冲。</div></details>
+  <div class="wrap">
+    <div style="margin:0 0 10px"><button id="rfbtn" onclick="doRefresh('runup')" style="font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">🔄 刷新业绩+协转数据</button> <span id="rfst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span></div>
+    <div id="resonance"></div><div id="resbt"></div>
+    <div id="riskpanel"></div>
+    <div id="chartpanel" class="chartbox" style="display:none"><div class="chartbar"><b id="charttitle">图表</b><label id="k-adjust-wrap">复权 <select id="k-adjust"><option value="qfq">前复权</option><option value="hfq">后复权</option><option value="none">不复权</option></select></label><span id="chartstatus" class="upd"></span></div><div id="kchart"></div></div>
+    <div id="latest-announcements" class="card" style="display:none"></div>
+    <div id="content">加载中…</div>
+    <div id="browse" style="margin-top:6px"></div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script src="/static/money_flow_spark.js"></script>
+<script>
+function tbl(rows, cols){
+  if(!rows||!rows.length) return '<div class="empty">— 无 —</div>';
+  let h="<table><thead><tr>"+cols.map(c=>`<th>${c[0]}</th>`).join("")+"</tr></thead><tbody>";
+  h+=rows.map(r=>`<tr${r&&r.repo_signal&&r.repo_signal.hit?' class="repohit"':''}>`+cols.map(c=>`<td>${c[1](r)}</td>`).join("")+"</tr>").join("");
+  return h+"</tbody></table>";
+}
+function escHtml(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function escAttr(s){return String(s||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");}
+function riskBtn(r){return `<button class="riskbtn" data-code="${escAttr(r.code)}" data-industry="${escAttr(r.industry||r.l3||r.sw_l3||"")}" onclick="showRisk(this.dataset.code,this.dataset.industry)">核查</button>`}
+function iBtn(r){const ad=annDateKey(r);return `<button class="ibtn" data-code="${escAttr(r.code)}" data-name="${escAttr(r.name)}" data-ann-date="${escAttr(ad)}" onclick="showIntraday(this.dataset.code,this.dataset.name,this.dataset.annDate)">分时</button>`}
+function kBtn(r){return `<button class="kbtn" data-code="${escAttr(r.code)}" data-name="${escAttr(r.name)}" onclick="showKline(this.dataset.code,this.dataset.name)">K线</button>`}
+function klineCode(code){
+  const c=String(code||"").trim().toUpperCase();
+  if(/^\d{6}$/.test(c)) return c.startsWith("6")?`${c}.SH`:(c.startsWith("4")||c.startsWith("8")?`${c}.BJ`:`${c}.SZ`);
+  return c;
+}
+function intradayCode(code){
+  const c=String(code||"").trim().toUpperCase();
+  const six=(c.match(/\d{6}/)||[""])[0];
+  if(!six) return c.toLowerCase();
+  return (six.startsWith("6")?"sh":((six.startsWith("4")||six.startsWith("8"))?"bj":"sz"))+six;
+}
+function unlockCell(r){
+  const u=(r&&r.unlock_info)||{};
+  if(!u.label||u.label==="无解禁数据") return '<span style="color:#64748b">—</span>';
+  const c=u.status==="high"?"#f87171":(u.status==="watch"?"#fbbf24":"#94a3b8");
+  return `<span title="${String(u.label).replace(/"/g,'&quot;')}" style="color:${c};font-size:11px">${u.label}</span>`;
+}
+function moneyOutflowBadge(r){
+  const m=(r&&r.money_outflow)||{};
+  if(!m.status||m.status==="none")return "";
+  const flowColor=v=>Number(v)>0?"#22c55e":(Number(v)<0?"#ef4444":"#94a3b8");
+  const label=m.status==="high"?"资金流出前10%":"资金流出前20%";
+  const net10=m.outflow_10d_yi==null?"-":Number(m.outflow_10d_yi).toFixed(2);
+  const days=(m.outflow_10d_daily||[]).map(d=>`<span style="color:${flowColor(d.outflow_net_yi)}">${String(d.date||"").slice(5)}:${d.outflow_net_yi==null?"-":Number(d.outflow_net_yi).toFixed(2)}</span>`).join(" / ");
+  const title=`${m.label||label}: 当日净流出${m.outflow_net_yi??"-"}亿, 15日净流出${net10}亿, 15日主力净额${m.main_net_10d_yi??"-"}亿, 15日净额/成交额${m.main_net_10d_ratio_pct??"-"}%, 流出分位${m.outflow_rank_pct??"-"}%, ${m.trade_date||""}`;
+  const spark=window.moneyFlowSparkHtml?moneyFlowSparkHtml(r.code||r.ts_code||r.symbol,m):"";
+  return ` <span title="${escAttr(title)}" style="display:inline-block;margin-left:4px;color:${flowColor(m.outflow_10d_yi)};font-size:11px;font-weight:600">15日净流出${net10}亿</span><span style="display:block;color:#94a3b8;font-size:10px;line-height:1.35">日:${days||"-"}</span>${spark}`;
+}
+function annTimeCell(r){
+  const t=r.cninfo_ann_datetime||"";
+  if(!t) return '<span style="color:#64748b">—</span>';
+  const title=[r.cninfo_title||"", r.cninfo_url||""].filter(Boolean).join("\\n");
+  const color=t.slice(11,19)>"15:00:00"?"#fbbf24":"#86efac";
+  const label=t.length>=16?t.slice(5,16):t;
+  return `<span title="${escAttr(title)}" style="color:${color};font-size:11px">${escHtml(label)}</span>`;
+}
+function effectiveAnnCell(r){
+  const raw=r.raw_ann_date||r.ann_date||r.date||"";
+  const eff=r.cninfo_effective_ann_date||raw||"";
+  if(!r.cninfo_ann_datetime||String(eff)===String(raw)) return escHtml(eff||"-");
+  return `<span title="原公告日 ${escAttr(raw)}；按巨潮发布时间修正" style="color:#fbbf24;font-weight:700">${escHtml(eff)}</span>`;
+}
+function annDateKey(r){
+  const v=String(r.cninfo_effective_ann_date||r.ann_date||r.raw_ann_date||r.date||"");
+  return v.replace(/-/g,"").slice(0,8);
+}
+function htmlDate(v){const s=String(v||"").replace(/-/g,"").slice(0,8);return s.length===8?`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`:"";}
+function daysDiffFromToday(yyyymmdd){
+  const s=String(yyyymmdd||""); if(s.length!==8) return null;
+  const d=new Date(+s.slice(0,4),+s.slice(4,6)-1,+s.slice(6,8));
+  const t=new Date(); const today=new Date(t.getFullYear(),t.getMonth(),t.getDate());
+  return Math.round((today-d)/86400000);
+}
+function repoBadge(r){
+  const s=(r&&r.repo_signal)||{};
+  if(!s.hit) return "";
+  const age=Number.isInteger(s.age_days)?` · ${s.age_days}天前`:"";
+  const title=`${s.label||"回购+业绩"}${age}\\n${s.ann_date||""} ${s.proc||""}\\n${s.title||""}`;
+  return `<span class="repobadge" title="${escAttr(title)}">回购+业绩</span>`;
+}
+function nameWithUnlock(r, extraTitle){
+  const name=escHtml(r.name||'');
+  const u=(r&&r.unlock_info)||{};
+  const title=extraTitle?` title="${String(extraTitle).replace(/"/g,'&quot;')}"`:'';
+  const base=`<span${title}>${name}</span>${repoBadge(r)}${moneyOutflowBadge(r)}`;
+  if(!u.label||u.label==="无解禁数据") return base;
+  const c=u.status==="high"?"#f87171":(u.status==="watch"?"#fbbf24":"#94a3b8");
+  return `${base} <span title="${String(u.label).replace(/"/g,'&quot;')}" style="display:inline-block;margin-left:4px;color:${c};font-size:11px;font-weight:600">${u.label}</span>`;
+}
+function unlockFocusTable(rows){
+  const cols=[
+    ["focus_window","重点"],["code","代码"],["name","简称"],["kind","类型"],["unlock_date","解禁时间"],["days_to_unlock","距今"],["ann_date","公告日"],["title","公告标题"],["dataset","来源"]
+  ];
+  const sort=window.UNLOCK_SORT||{key:"days_to_unlock",dir:"asc"};
+  let h='<div class="unlocktable"><table><thead><tr>'+cols.map(c=>{
+    const mark=sort.key===c[0]?(sort.dir==="asc"?" ▲":" ▼"):"";
+    return `<th class="sortable" data-sort="${c[0]}" onclick="sortUnlockFocus('${c[0]}')">${c[1]}${mark}</th>`;
+  }).join("")+'</tr></thead><tbody>';
+  h+=(rows||[]).map(x=>{
+    const d=x.days_to_unlock;
+    const dayText=Number.isInteger(d)?(d>=0?'距'+d+'天':'已过'+Math.abs(d)+'天'):'-';
+    const c=Number.isInteger(d)&&d>=0&&d<=30?'#fca5a5':(Number.isInteger(d)&&d>=0&&d<=90?'#fbbf24':(Number.isInteger(d)&&d<0?'#94a3b8':'#cbd5e1'));
+    const title=x.url?`<a href="${escAttr(x.url)}" target="_blank" style="color:#7dd3fc">${escHtml(x.title||"公告")}</a>`:escHtml(x.title||"");
+    const focus=x.focus_window?'<span class="unlockbadge">最近8个月</span>':'';
+    return `<tr><td>${focus}</td><td>${escHtml(x.code||"")}</td><td>${escHtml(x.name||"")}</td><td><span class="unlockbadge">${escHtml(x.kind||"解禁")}</span></td><td>${escHtml(x.unlock_date||"")}</td><td style="color:${c};font-weight:600">${dayText}</td><td>${escHtml(x.ann_date||"")}</td><td>${title}</td><td>${escHtml(x.dataset||"")}</td></tr>`;
+  }).join("");
+  return h+'</tbody></table></div>';
+}
+window.RUNUP_UNLOCK_FOCUS=[];
+window.UNLOCK_MODE="focus";
+window.UNLOCK_SORT={key:"days_to_unlock",dir:"asc"};
+function unlockSortValue(x,key){
+  if(key==="focus_window") return x.focus_window?1:0;
+  if(key==="days_to_unlock") return Number.isInteger(x.days_to_unlock)?x.days_to_unlock:999999;
+  return String((x&&x[key])||"").toLowerCase();
+}
+function sortUnlockRows(rows){
+  const s=window.UNLOCK_SORT||{key:"days_to_unlock",dir:"asc"};
+  const dir=s.dir==="desc"?-1:1;
+  return (rows||[]).slice().sort((a,b)=>{
+    const av=unlockSortValue(a,s.key), bv=unlockSortValue(b,s.key);
+    if(av<bv) return -1*dir;
+    if(av>bv) return 1*dir;
+    const ad=unlockSortValue(a,"ann_date"), bd=unlockSortValue(b,"ann_date");
+    if(ad<bd) return -1;
+    if(ad>bd) return 1;
+    return String(a.code||"").localeCompare(String(b.code||""));
+  });
+}
+window.sortUnlockFocus=function(key){
+  const cur=window.UNLOCK_SORT||{key:"days_to_unlock",dir:"asc"};
+  window.UNLOCK_SORT={key,dir:(cur.key===key&&cur.dir==="asc")?"desc":"asc"};
+  window.renderUnlockFocusMode(window.UNLOCK_MODE||"focus");
+};
+window.renderUnlockFocusMode=function(mode){
+  window.UNLOCK_MODE=mode;
+  const rows=window.RUNUP_UNLOCK_FOCUS||[];
+  const show=sortUnlockRows(mode==="all"?rows:rows.filter(x=>x.focus_window));
+  document.querySelectorAll("[data-unlock-mode]").forEach(b=>b.classList.toggle("active",b.dataset.unlockMode===mode));
+  const box=document.getElementById("unlock-focus-table");
+  if(box) box.innerHTML=show.length?unlockFocusTable(show):'<div class="empty">最近8个月暂无重点协转/解禁记录</div>';
+};
+function riskLabel(s){return ({high:"高风险",watch:"观察",low:"低风险",none:"无明显"})[s]||s||"—";}
+function riskItems(a){return (a||[]).slice(0,5).map(x=>{
+  const ud=x.unlock_date?` 解禁${x.unlock_date}`:"";
+  const dd=Number.isInteger(x.days_to_unlock)?` 距${x.days_to_unlock}天`:"";
+  const ratio=x.transfer_ratio!=null?` 协转${x.transfer_ratio}%`:(x.unlock_ratio!=null?` 解禁${x.unlock_ratio}%`:"");
+  const px=x.issue_price?` 发行价${x.issue_price}`:"";
+  const cp=x.current_price?` 现价${x.current_price}`:"";
+  const gap=x.price_gap_pct!=null?` 跌破幅度${x.price_gap_pct}%`:"";
+  const motive=x.support_motive==="strong"?" 补价/护价动机强":"";
+  return `<div>· ${(x.date||x.ann_date||x.list_date||x.transfer_date||"")} ${x.title||x.name||x.reason||x.event||""}${ud}${dd}${ratio}${px}${cp}${gap}${motive}</div>`;
+}).join("")||'<div class="empty">暂无本地缓存记录</div>';}
+async function showRisk(code,industry){
+  const box=document.getElementById("riskpanel"); if(!box||!code)return;
+  box.innerHTML='<div class="riskbox">事件风险核查加载中…</div>';
+  try{
+    const d=await (await fetch(`/api/event_risk?code=${encodeURIComponent(code)}&industry=${encodeURIComponent(industry||"")}`)).json();
+    const p=d.placement||{}, t=d.transfer||{}, u=d.unlock||{}, c=d.company_negative||{}, ind=d.industry_negative||{};
+    box.innerHTML=`<div class="riskbox"><div><b>${code} 事件风险核查</b>　结论：<span class="riskpill ${p.status}">${(d.summary||{}).decision||'-'}</span><span class="muted">${(d.summary||{}).note||''}</span></div>`+
+      `<div><span class="riskpill ${p.status}">定增 ${riskLabel(p.status)}</span><span class="riskpill ${t.status}">协转 ${riskLabel(t.status)}</span><span class="riskpill ${u.status}">其他解禁 ${riskLabel(u.status)}</span><span class="riskpill ${c.status}">公司负面 ${riskLabel(c.status)}</span><span class="riskpill ${ind.status}">行业负面 ${riskLabel(ind.status)}</span></div>`+
+      `<details open><summary>协转/锁定期6个月/解禁日</summary>${riskItems(t.items)}</details>`+
+      `<details open><summary>定增/发行价/补价动机/解禁日</summary>${riskItems(p.items)}</details>`+
+      `<details><summary>其他限售解禁</summary>${riskItems(u.items)}</details>`+
+      `<details><summary>公司负面</summary>${riskItems(c.items)}</details>`+
+      `<details><summary>行业负面</summary>${riskItems(ind.items)}</details></div>`;
+    box.scrollIntoView({behavior:"smooth",block:"nearest"});
+  }catch(e){box.innerHTML='<div class="riskbox"><span class="warn">事件风险核查加载失败</span></div>';}
+}
+let KCHART=null;
+let KLINE_TARGET=null;
+let CHART_REQUEST_NO=0;
+function ma(values,n){return values.map((_,i)=>i<n-1?null:+(values.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n).toFixed(3));}
+async function showKline(code,name){
+  const ownRequest=++CHART_REQUEST_NO;
+  const queryCode=klineCode(code);
+  const panel=document.getElementById("chartpanel"), st=document.getElementById("chartstatus"), title=document.getElementById("charttitle");
+  const adjust=document.getElementById("k-adjust").value;
+  KLINE_TARGET={code,name};
+  document.getElementById("k-adjust-wrap").style.display="inline-flex";
+  panel.style.display="block"; title.textContent=`${name||code} ${queryCode} · 日K`; st.textContent="加载中…";
+  panel.scrollIntoView({behavior:"smooth",block:"nearest"});
+  if(!KCHART) KCHART=echarts.init(document.getElementById("kchart"));
+  try{
+    const r=await fetch(`/api/kline?code=${encodeURIComponent(queryCode)}&days=180&adjust=${adjust}&refresh=0`);
+    const d=await r.json().catch(()=>({}));
+    if(ownRequest!==CHART_REQUEST_NO)return;
+    if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`);
+    const contract=QIKline.assertPayload(d,adjust);
+    const kdata=d.dates.map((_,i)=>[d.open[i],d.close[i],d.low[i],d.high[i]]);
+    const vol=d.volume||[];
+    const last=d.close[d.close.length-1], prev=d.close.length>1?d.close[d.close.length-2]:last;
+    const pct=prev?((last/prev-1)*100):0;
+    st.innerHTML=`${contract.lastDate} · ${contract.adjustLabel} · ${contract.source} · 收 ${last.toFixed(2)} <span style="color:${pct>=0?'#86efac':'#fca5a5'}">${pct>=0?'+':''}${pct.toFixed(2)}%</span>${contract.qualityNotice ? ` · ${contract.qualityNotice}` : ""}`;
+    KCHART.setOption({
+      backgroundColor:"transparent",
+      color:["#60a5fa","#fbbf24","#a78bfa"],
+      tooltip:{trigger:"axis",axisPointer:{type:"cross"}},
+      legend:{top:0,textStyle:{color:"#94a3b8"},data:["K线","MA5","MA10","MA20","成交量"]},
+      grid:[{left:52,right:20,top:34,height:"58%"},{left:52,right:20,top:"76%",height:"16%"}],
+      xAxis:[
+        {type:"category",data:d.dates,axisLabel:{color:"#94a3b8"},axisLine:{onZero:false}},
+        {type:"category",gridIndex:1,data:d.dates,axisLabel:{color:"#94a3b8"},axisLine:{onZero:false}},
+      ],
+      yAxis:[
+        {scale:true,axisLabel:{color:"#94a3b8"},splitLine:{lineStyle:{color:"#1e293b"}}},
+        {scale:true,gridIndex:1,axisLabel:{color:"#94a3b8"},splitLine:{show:false}},
+      ],
+      dataZoom:[{type:"inside",xAxisIndex:[0,1],start:45,end:100},{type:"slider",xAxisIndex:[0,1],bottom:2,start:45,end:100}],
+      series:[
+        {name:"K线",type:"candlestick",data:kdata,itemStyle:{color:"#ef4444",color0:"#22c55e",borderColor:"#ef4444",borderColor0:"#22c55e"}},
+        {name:"MA5",type:"line",data:ma(d.close,5),showSymbol:false,smooth:true,lineStyle:{width:1}},
+        {name:"MA10",type:"line",data:ma(d.close,10),showSymbol:false,smooth:true,lineStyle:{width:1}},
+        {name:"MA20",type:"line",data:ma(d.close,20),showSymbol:false,smooth:true,lineStyle:{width:1}},
+        {name:"成交量",type:"bar",xAxisIndex:1,yAxisIndex:1,data:vol,itemStyle:{color:"#475569"}},
+      ]
+    },true);
+    setTimeout(()=>KCHART.resize(),50);
+  }catch(e){
+    if(ownRequest!==CHART_REQUEST_NO)return;
+    st.innerHTML=`<span class="warn">K线加载失败: ${e.message}</span>`;
+    KCHART.clear();
+  }
+}
+async function showIntraday(code,name,annDate){
+  const ownRequest=++CHART_REQUEST_NO;
+  const queryCode=intradayCode(code);
+  const panel=document.getElementById("chartpanel"), st=document.getElementById("chartstatus"), title=document.getElementById("charttitle");
+  const annLabel=annDate&&String(annDate).length===8?`${annDate.slice(0,4)}-${annDate.slice(4,6)}-${annDate.slice(6,8)}`:"最新交易日";
+  document.getElementById("k-adjust-wrap").style.display="none";
+  panel.style.display="block"; title.textContent=`${name||code} ${queryCode} · 分时 · 公告日 ${annLabel}`; st.textContent="加载中…";
+  panel.scrollIntoView({behavior:"smooth",block:"nearest"});
+  if(!KCHART) KCHART=echarts.init(document.getElementById("kchart"));
+  try{
+    const r=await fetch(`/api/intraday?code=${encodeURIComponent(queryCode)}&freq=5min&date=${encodeURIComponent(annDate||"")}`);
+    const d=await r.json();
+    if(ownRequest!==CHART_REQUEST_NO)return;
+    if(!r.ok || !d.times || !d.times.length) throw new Error(d.error||d.message||`HTTP ${r.status}`);
+    const last=d.close[d.close.length-1], pre=d.pre_close||d.close[0];
+    const pct=pre?((last/pre-1)*100):0;
+    st.innerHTML=`${d.date||""} 现 ${Number(last).toFixed(2)} <span style="color:${pct>=0?'#86efac':'#fca5a5'}">${pct>=0?'+':''}${pct.toFixed(2)}%</span>`;
+    KCHART.setOption({
+      backgroundColor:"transparent",
+      color:["#60a5fa","#fbbf24","#94a3b8"],
+      tooltip:{trigger:"axis"},
+      legend:{top:0,textStyle:{color:"#94a3b8"},data:["价格","VWAP","昨收"]},
+      grid:{left:52,right:20,top:34,bottom:34},
+      xAxis:{type:"category",data:d.times,axisLabel:{color:"#94a3b8"},boundaryGap:false},
+      yAxis:{scale:true,axisLabel:{color:"#94a3b8"},splitLine:{lineStyle:{color:"#1e293b"}}},
+      dataZoom:[{type:"inside",start:0,end:100}],
+      series:[
+        {name:"价格",type:"line",data:d.close,showSymbol:false,smooth:true,lineStyle:{width:2}},
+        {name:"VWAP",type:"line",data:d.vwap||[],showSymbol:false,smooth:true,lineStyle:{width:1.5}},
+        {name:"昨收",type:"line",data:d.times.map(()=>pre),showSymbol:false,lineStyle:{width:1,type:"dashed"}},
+      ]
+    },true);
+    setTimeout(()=>KCHART.resize(),50);
+  }catch(e){
+    if(ownRequest!==CHART_REQUEST_NO)return;
+    st.innerHTML=`<span class="warn">分时加载失败: ${e.message}</span>`;
+    KCHART.clear();
+  }
+}
+document.getElementById("k-adjust").addEventListener("change",()=>{if(KLINE_TARGET)showKline(KLINE_TARGET.code,KLINE_TARGET.name);});
+window.addEventListener("resize",()=>{if(KCHART)KCHART.resize();});
+fetch("/api/event_resonance").then(r=>r.json()).then(d=>{
+  const rows=d.items||[],box=document.getElementById("resonance");
+  if(!rows.length){box.innerHTML="";return}
+  let h=`<div class="card" style="border-color:#92400e"><h3 style="color:#fbbf24">🔥 同行业事件共振 (${d.n}组 · 重点${d.n_focus}组)</h3><div class="sub">业绩事件提供行业基本面线索，同行回购提供公司资金/估值线索。仅作增强排序，不替代原策略。</div>`;
+  h+='<table><thead><tr><th>行业</th><th>业绩线索</th><th>来源</th><th>回购同行</th><th>回购公告源</th><th>间隔</th><th>评分</th></tr></thead><tbody>';
+  h+=rows.slice(0,30).map(x=>`<tr><td>${x.industry}</td><td>${x.earnings_name} <span style="color:#64748b">${x.earnings_code}</span></td><td>${x.earnings_source}${x.earnings_type?'·'+x.earnings_type:''}</td><td>${x.repo_name} <span style="color:#64748b">${x.repo_code}</span></td><td>${x.repo_url?`<a href="${x.repo_url}" target="_blank" style="color:#7dd3fc">巨潮公告↗</a>`:x.repo_source}</td><td>${x.event_gap_days==null?'-':x.event_gap_days+'天'}</td><td><b style="color:${x.score>=75?'#fbbf24':'#94a3b8'}">${x.score}·${x.level}</b></td></tr>`).join('');
+  box.innerHTML=h+`</tbody></table><div class="note">${d.note||''}</div></div>`;
+}).catch(()=>{});
+fetch("/api/event_resonance/backtest").then(r=>r.json()).then(d=>{
+  if(!d.comparison)return;const hs=[5,10,20,60],last=(d.by_year||[]).slice(-1)[0];
+  document.getElementById("resbt").innerHTML=`<div class="note"><b>📊 同行业+同年度匹配历史验证</b>（共振${d.n_resonance}笔）　${hs.map(h=>{const x=d.comparison[h];return `${h}日增量 <b style="color:${x.mean_lift>0?'#86efac':'#fca5a5'}">${x.mean_lift>0?'+':''}${x.mean_lift}%</b>`}).join('　')}<br><span style="color:#94a3b8">固定20日回看窗口；Bootstrap 95%区间见结果文件。${last?`最近${last.year}年20日：共振${last.resonance.horizons[20].mean}% vs 普通${last.ordinary.horizons[20].mean}%`:""}</span></div>`;
+}).catch(()=>{});
+function latestAnnouncementRows(d){
+  const ev=(d&&d.events)||{};
+  const defs=[["forecast","业绩预告"],["express","业绩快报"],["report","业绩报告"]];
+  const out=[];
+  defs.forEach(([key,label])=>{
+    (ev[key]||[]).forEach(r=>{
+      const x=Object.assign({},r);
+      x.latest_kind=key;
+      x.latest_label=label;
+      x.latest_date=annDateKey(x);
+      out.push(x);
+    });
+  });
+  return out.sort((a,b)=>String(b.cninfo_ann_datetime||b.latest_date||"").localeCompare(String(a.cninfo_ann_datetime||a.latest_date||"")));
+}
+function passLatestDateFilter(r,mode,start,end){
+  const key=annDateKey(r);
+  if(!key) return mode==="all";
+  if(mode==="today"){
+    const today=htmlDate(new Date().toISOString().slice(0,10)).replace(/-/g,"");
+    return key===today;
+  }
+  if(mode==="afterclose"){
+    const t=String(r.cninfo_ann_datetime||"").slice(11,19);
+    return t>="15:00:00";
+  }
+  if(mode==="3"||mode==="7"){
+    const diff=daysDiffFromToday(key);
+    return diff!=null && diff>=0 && diff<=Number(mode);
+  }
+  if(mode==="custom"){
+    const s=String(start||"").replace(/-/g,"").slice(0,8), e=String(end||"").replace(/-/g,"").slice(0,8);
+    return (!s||key>=s)&&(!e||key<=e);
+  }
+  return true;
+}
+function renderLatestAnnouncements(){
+  const d=window.RUNUP_DATA||{};
+  const box=document.getElementById("latest-announcements");
+  if(!box) return;
+  const all=latestAnnouncementRows(d);
+  if(!all.length){box.style.display="none";return;}
+  box.style.display="block";
+  const dateMode=document.getElementById("latest-date-filter")?.value||"afterclose";
+  const typeMode=document.getElementById("latest-type-filter")?.value||"all";
+  const start=document.getElementById("latest-start")?.value||"";
+  const end=document.getElementById("latest-end")?.value||"";
+  const rows=all.filter(r=>(typeMode==="all"||r.latest_kind===typeMode)&&passLatestDateFilter(r,dateMode,start,end));
+  const cols=[
+    ["代码",r=>r.code],["分时",iBtn],["K线",kBtn],["名称",nameWithUnlock],
+    ["类型",r=>`<span class="tag">${r.latest_label||"-"}</span>${r.type?` <span class="tag">${escHtml(r.type)}</span>`:""}`],
+    ["原公告日",r=>r.raw_ann_date||r.ann_date||"-"],["巨潮发布时间",annTimeCell],["修正公告日",effectiveAnnCell],
+    ["报告期",r=>r.period||"-"],["解禁/协转",unlockCell],["风险",riskBtn],
+  ];
+  box.innerHTML=`<h3 style="color:#fbbf24">最新发布业绩公告 (${rows.length}/${all.length})</h3>`+
+    `<div class="filterbar">日期 <select id="latest-date-filter" onchange="renderLatestAnnouncements()"><option value="afterclose">昨收后/盘后</option><option value="today">今日</option><option value="3">近3日</option><option value="7">近7日</option><option value="all">全部</option><option value="custom">自定义</option></select>`+
+    `类型 <select id="latest-type-filter" onchange="renderLatestAnnouncements()"><option value="all">全部</option><option value="forecast">业绩预告</option><option value="express">业绩快报</option><option value="report">业绩报告</option></select>`+
+    `<input id="latest-start" type="date" onchange="renderLatestAnnouncements()"><input id="latest-end" type="date" onchange="renderLatestAnnouncements()">`+
+    `<span class="muted">按巨潮发布时间/修正公告日筛选；点分时看公告后盘中反应</span></div>`+
+    `<div style="max-height:460px;overflow:auto">${tbl(rows,cols)}</div>`;
+  const df=document.getElementById("latest-date-filter"), tf=document.getElementById("latest-type-filter");
+  if(df) df.value=dateMode;
+  if(tf) tf.value=typeMode;
+  const st=document.getElementById("latest-start"), ed=document.getElementById("latest-end");
+  if(st) st.value=start; if(ed) ed.value=end;
+}
+fetch("/api/runup").then(r=>r.json()).then(d=>{
+  let h=`<div class="hd">📈 业绩预告抢跑 · 第二sleeve</div><div class="upd">更新 ${d.updated||"-"} · 今日 ${d.today||"-"}</div>`;
+  h+=`<div class="sub">${d.strategy||""}</div>`;
+  const repoFocus=d.repo_focus||[];
+  if(repoFocus.length){
+    h+=`<div class="card repofocus"><h3 style="color:#fbbf24">重点关注 · 回购+业绩共振 (${repoFocus.length}只)</h3><div class="sub" style="margin-bottom:0">同一只股票前期出现回购，现在又出现业绩预告/快报/报告，说明公司动作和业绩线索叠加，需要优先人工复核。</div><div class="focusgrid">`;
+    h+=repoFocus.slice(0,24).map(x=>{
+      const s=x.repo_signal||{};
+      const age=Number.isInteger(s.age_days)?` · 回购${s.age_days}天前`:"";
+      const link=s.announcement_url?` <a href="${escAttr(s.announcement_url)}" target="_blank" style="color:#7dd3fc">公告↗</a>`:"";
+      return `<div class="focusitem"><b>${escHtml(x.name||"")} <span style="color:#64748b">${escHtml(x.code||"")}</span></b> ${repoBadge(x)}<br><span style="color:#94a3b8">${escHtml(x.type||"业绩事件")} ${escHtml(x.ann_date||"")} ${escHtml(x.period||"")}</span><br><span style="color:#fbbf24">${escHtml(s.ann_date||"")}${age}</span>${link}<div style="color:#94a3b8">${escHtml((s.title||"").slice(0,46))}</div></div>`;
+    }).join("");
+    h+=`</div></div>`;
+  }
+  window.RUNUP_DATA=d;
+  renderLatestAnnouncements();
+  const unlockFocus=d.unlock_focus||[];
+  if(unlockFocus.length){
+    window.RUNUP_UNLOCK_FOCUS=unlockFocus;
+    const focusCount=unlockFocus.filter(x=>x.focus_window).length;
+    h+=`<div class="card unlockfocus"><h3 style="color:#fca5a5">协转/解禁关注 (${focusCount}条重点 / ${unlockFocus.length}条近一年)</h3><div class="sub" style="margin-bottom:6px">直接来自巨潮/上交所等本地缓存；默认显示最近8个月重点，保留最近一年全部记录方便回看历史压力和核查。</div><div><button class="segbtn active" data-unlock-mode="focus" onclick="renderUnlockFocusMode('focus')">最近8个月重点</button><button class="segbtn" data-unlock-mode="all" onclick="renderUnlockFocusMode('all')">最近一年全部</button></div><div id="unlock-focus-table">${focusCount?unlockFocusTable(unlockFocus.filter(x=>x.focus_window)):'<div class="empty">最近8个月暂无重点协转/解禁记录</div>'}</div></div>`;
+  }
+  const cols=[["代码",r=>r.code],["分时",iBtn],["K线",kBtn],["名称",nameWithUnlock],["预告",r=>`<span class="tag">${r.type||""}</span>`],
+              ["报告日",r=>r.report_date],["距报告(交易日)",r=>r.days_to],
+              ["近20日涨幅",r=>r.runup_pct==null?'-':(r.overheat?`<span title="财报前已大涨, 利好可能提前透支/内幕泄露, 标记不剔除人工判断" style="color:#fb923c;font-weight:600">${r.runup_pct}% ⚠️透支</span>`:`<span style="color:#94a3b8">${r.runup_pct}%</span>`)],
+              ["解禁/协转",unlockCell],["风险",riskBtn]];
+  const colsB=[["代码",r=>r.code],["分时",iBtn],["K线",kBtn],["名称",nameWithUnlock],["预告",r=>`<span class="tag">${r.type||""}</span>`],
+               ["原公告日",r=>r.raw_ann_date||r.ann_date],["巨潮发布时间",annTimeCell],["修正公告日",effectiveAnnCell],["计划卖出日",r=>r.sell_date],["解禁/协转",unlockCell],["风险",riskBtn]];
+  const nbuy=(d.buy||[]).length, nsell=(d.sell||[]).length, nwatch=(d.watch||[]).length, npost=(d.buy_post||[]).length;
+  if(nbuy+nsell+nwatch+npost===0){
+    h+=`<div class="card"><div class="empty">当前无业绩事件(财报淡季)。<br>该策略季节性集中在 <b>4月(年报+一季报)/ 8月(中报)/ 10月(三季报)</b> 披露季;其余时段空仓。</div></div>`;
+  }else{
+    h+=`<div class="card"><div style="color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px">腿A · 公告前抢跑(报告前6日建仓→前1日平)</div>`;
+    h+=`<div class="buy"><h3>🟢 今日建仓 (${nbuy}只)</h3>${tbl(d.buy,cols)}</div>`;
+    h+=`<div class="sell" style="margin-top:8px"><h3>🔴 平仓·报告前1日 (${nsell}只)</h3>${tbl(d.sell,cols)}</div></div>`;
+    h+=`<div class="card"><div style="color:#cbd5e1;font-size:13px;font-weight:600;margin-bottom:6px">腿B · 公告后漂移(业绩好公告刚发→开盘买·持5交易日)</div>`;
+    h+=`<div class="buy"><h3>🟢 今日建仓 (${npost}只)</h3>${tbl(d.buy_post,colsB)}</div></div>`;
+    h+=`<div class="card watch"><h3>🔵 观察 (预增·报告还早 · ${nwatch}只)</h3>${tbl((d.watch||[]).slice(0,40),cols)}</div>`;
+  }
+  // ===== 四类业绩事件明细 =====
+  const ev=d.events||{};
+  const fmtYi=v=>(v==null||v==='')?'-':(Math.abs(v)>=1e8?(v/1e8).toFixed(2)+'亿':(v/1e4).toFixed(0)+'万');
+  const fmtPct=v=>(v==null||v==='')?'-':(Number(v).toFixed(1)+'%');
+  const fmtRange=(a,b)=>{ if(a==null&&b==null) return '-'; const s=x=>x==null?'?':Number(x).toFixed(0)+'%'; return s(a)+'~'+s(b); };
+  const POSSET=['预增','略增','扭亏','续盈','减亏'];
+  const evCols={
+    forecast:[["代码",r=>r.code],["分时",iBtn],["K线",kBtn],["名称",nameWithUnlock],["类型",r=>`<span class="tag" style="${POSSET.includes(r.type)?'background:#14532d;color:#86efac':''}">${r.type||'-'}</span>`],["预计净利变动",r=>fmtRange(r.p_chg_min,r.p_chg_max)],["原公告日",r=>r.raw_ann_date||r.ann_date],["巨潮发布时间",annTimeCell],["修正公告日",effectiveAnnCell],["报告期",r=>r.period],["解禁/协转",unlockCell],["风险",riskBtn]],
+    express:[["代码",r=>r.code],["分时",iBtn],["K线",kBtn],["名称",nameWithUnlock],["净利润",r=>fmtYi(r.n_income)],["同比",r=>fmtPct(r.yoy)],["营收",r=>fmtYi(r.revenue)],["原公告日",r=>r.raw_ann_date||r.ann_date],["巨潮发布时间",annTimeCell],["修正公告日",effectiveAnnCell],["报告期",r=>r.period],["解禁/协转",unlockCell],["风险",riskBtn]],
+    disclosure:[["代码",r=>r.code],["分时",iBtn],["K线",kBtn],["名称",nameWithUnlock],["预计披露日",r=>r.pre_date],["距今(交易日)",r=>r.days_to],["报告期",r=>r.period],["解禁/协转",unlockCell],["风险",riskBtn]],
+    report:[["代码",r=>r.code],["分时",iBtn],["K线",kBtn],["名称",nameWithUnlock],["原公告日",r=>r.raw_ann_date||r.ann_date],["巨潮发布时间",annTimeCell],["修正公告日",effectiveAnnCell],["报告期",r=>r.period],["解禁/协转",unlockCell],["风险",riskBtn]],
+  };
+  const evMeta=[["forecast","📋 业绩预告","预增/略增等绿色;正式报告前可抢跑(腿A/B用此)"],["express","⚡ 业绩快报","快报=正式报告前的业绩摘要,含净利同比"],["disclosure","📅 业绩报告·预计披露日","pre_date;距披露越近越接近建仓窗口"],["report","✅ 业绩报告·正式发布","actual_date;已落地(漂移已开始)"]];
+  const totalEv=evMeta.reduce((s,m)=>s+((ev[m[0]]||[]).length),0);
+  if(totalEv>0){
+    h+=`<div class="hd" style="margin-top:18px">🗂️ 四类业绩事件明细 <span style="font-size:12px;color:#64748b;font-weight:normal">中证1000 · 近45日/未来</span></div>`;
+    evMeta.forEach(m=>{
+      const rows=ev[m[0]]||[];
+      const openAttr=(m[0]==='forecast'||m[0]==='express')?'open':'';
+      h+=`<details class="card" ${openAttr}><summary style="cursor:pointer;color:#cbd5e1;font-weight:600">${m[1]} (${rows.length}只) <span style="color:#64748b;font-weight:normal;font-size:11px">— ${m[2]}</span></summary><div style="max-height:440px;overflow:auto;margin-top:8px">${tbl(rows,evCols[m[0]])}</div></details>`;
+    });
+  }
+  if(d.note) h+=`<div class="note"><span class="warn">⚠️ </span>${d.note}</div>`;
+  document.getElementById("content").innerHTML=h;
+}).catch(e=>{document.getElementById("content").innerHTML=`加载失败: ${e}`;});
+
+// ===== 全市场业绩预告浏览(沪深300/中证500/中证1000/全市场 分区) — 仅浏览, 非抢跑信号 =====
+fetch("/api/forecast_browse").then(r=>r.json()).then(d=>{
+  const items=d.items||[]; const POS=['预增','略增','扭亏','续盈','减亏'];
+  const yi=v=>(v==null||v==='')?'-':(Math.abs(v)>=1e8?(v/1e8).toFixed(2)+'亿':(v/1e4).toFixed(0)+'万');
+  const rng=(a,b)=>{ if(a==null&&b==null) return '-'; const s=x=>x==null?'?':Number(x).toFixed(0)+'%'; return s(a)+'~'+s(b); };
+  const pc=v=>(v==null)?'-':`<span style="color:${v>0?'#86efac':'#fca5a5'}">${v>0?'+':''}${v}%</span>`;
+  const accel=r=>{ if(r.q1_yoy==null||r.q2_yoy==null) return '<span style="color:#64748b">-</span>';
+    return r.accel?'<span style="color:#34d399;font-weight:700">✅加速</span>':'<span style="color:#fbbf24">❌减速</span>'; };
+  const bcols=[
+    ["代码",r=>`<a style="cursor:pointer;color:#7dd3fc" onclick="fund('${r.code}','${(r.name||'').replace(/'/g,'')}')">${r.code} 📊</a>`],["分时",iBtn],["K线",kBtn],["名称",r=>nameWithUnlock(r,`归母H1 ${r.net_min==null?'?':yi(r.net_min*1e4)}~${r.net_max==null?'?':yi(r.net_max*1e4)}${r.dedt_lo?(' · 扣非H1 '+yi(r.dedt_lo)+'~'+yi(r.dedt_hi)+(r.dedt_h1_yoy!=null?(' (扣非H1同比+'+r.dedt_h1_yoy+'%)'):'')):''} · ${(r.reason||'').slice(0,40)}`)],
+    ["类型",r=>`<span class="tag" style="${POS.includes(r.type)?'background:#14532d;color:#86efac':'background:#3f1d1d;color:#fca5a5'}">${r.type||'-'}</span>`],
+    ["H1预告(归母)",r=>rng(r.p_chg_min,r.p_chg_max)],
+    ["Q1扣非增速",r=>pc(r.q1_yoy)],
+    ["Q2预测增速",r=>pc(r.q2_yoy)+(r.q2_yoy==null?'':(r.dedt_src&&r.dedt_src.indexOf('精确')>=0?' <span title="扣非H1=归母−披露非经损益,精确" style="color:#86efac;font-size:9px">精</span>':' <span title="扣非H1=归母×扣非率,估算" style="color:#64748b;font-size:9px">估</span>'))],
+    ["加速?",accel],
+    ["原公告日",r=>r.raw_ann_date||r.ann_date||'-'],["巨潮发布时间",annTimeCell],["修正公告日",effectiveAnnCell],["报告期",r=>r.period||'-'],["解禁/协转",unlockCell],["风险",riskBtn],
+  ];
+  let h=`<div class="hd" style="margin-top:20px">🗂️ 全市场业绩预告浏览</div>`;
+  h+=`<div class="upd">更新 ${d.updated||'-'} · 报告期 ${(d.periods||[]).join('/')||'-'} · 共 ${(d.counts||{}).total||0} 只预告</div>`;
+  h+=`<div class="note" style="margin:8px 0"><span class="warn">⚠️ 仅供浏览参考,非抢跑信号。</span>抢跑策略只在 <b>中证1000</b> 验证有效(夏2.05);沪深300/中证500/其余股票的预告不构成抢跑买入信号(大中盘 priced-in 快)。绿=正向预告。<br><b>Q2单季扣非增速</b>:归母H1预告中值×扣非率→估算扣非H1,减扣非Q1实际=扣非Q2,比去年同期单季得增速;<b>✅加速=Q2增速>Q1增速</b>(利润动能向上拐)。扣非H1:优先取<b>东方财富结构化扣非预告区间</b>(标<b style="color:#86efac">精</b>,覆盖绝大多数),少数回退非经损益倒算/扣非率估算(标<b style="color:#64748b">估</b>)。鼠标悬停名称看归母/扣非H1区间+原因。</div>`;
+  const c=d.counts||{};
+  const areas=[
+    ["csi300","🔵 沪深300区", it=>it.idx==='csi300', c.csi300||0, true],
+    ["csi500","🟣 中证500区", it=>it.idx==='csi500', c.csi500||0, true],
+    ["csi1000","🟢 中证1000区(抢跑唯一验证池)", it=>it.idx==='csi1000', c.csi1000||0, true],
+    ["all","🌐 全市场区(全部)", it=>true, c.total||0, false],
+  ];
+  areas.forEach(a=>{
+    const rows=items.filter(a[2]);
+    const openAttr=a[4]?'open':'';
+    h+=`<details class="card" ${openAttr}><summary style="cursor:pointer;color:#cbd5e1;font-weight:600">${a[1]} (${a[3]}只)${a[0]==='csi1000'?' <span style="color:#64748b;font-weight:normal;font-size:11px">— 这些才会进上面的抢跑清单</span>':''}</summary><div style="max-height:460px;overflow:auto;margin-top:8px">${tbl(rows,bcols)}</div></details>`;
+  });
+  h+='<div id="funddetail" style="margin-top:10px"></div>';
+  document.getElementById("browse").innerHTML=h;
+}).catch(e=>{document.getElementById("browse").innerHTML=`<div class="empty">预告浏览加载失败: ${e}</div>`;});
+
+// 点代码📊 展开个股基本面深度: 近3年年度 扣非增速/毛利率/ROE + 近12单季 扣非增速/单季毛利率
+window.fund=async function(code,nm){
+  const box=document.getElementById("funddetail");
+  box.innerHTML='<div class="empty">加载 '+(nm||code)+' 基本面…</div>';
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+  try{
+    const d=await (await fetch("/api/forecast_fundamentals?code="+encodeURIComponent(code))).json();
+    if(!d.ok){ box.innerHTML='<div class="empty">'+(d.message||'取数失败')+'</div>'; return; }
+    const yi=v=>(v==null)?'-':(Math.abs(v)>=1e8?(v/1e8).toFixed(2)+'亿':(v/1e4).toFixed(0)+'万');
+    const pc=v=>v==null?'-':`<span style="color:${v>=0?'#86efac':'#fca5a5'}">${v>=0?'+':''}${v}%</span>`;
+    let h='<div class="card" style="background:#0d1424"><div style="font-weight:600;color:#e2e8f0;margin-bottom:6px">📊 '+(d.name||code)+' '+d.code+' · 基本面深度</div>';
+    h+='<div style="color:#94a3b8;font-size:12px;margin-bottom:3px">年度(近3年)</div>';
+    h+='<table style="margin-bottom:10px"><thead><tr><th>年度</th><th>扣非净利</th><th>扣非增速</th><th>毛利率</th><th>ROE</th></tr></thead><tbody>';
+    h+=d.annual.map(a=>`<tr><td>${a.year}</td><td>${yi(a.dedt)}</td><td>${pc(a.dedt_yoy)}</td><td>${a.gm==null?'-':a.gm+'%'}</td><td>${a.roe==null?'-':a.roe+'%'}</td></tr>`).join('');
+    h+='</tbody></table>';
+    h+='<div style="color:#94a3b8;font-size:12px;margin-bottom:3px">单季(近12季) — 单季扣非=本季累计−上季累计, 增速=对去年同季</div>';
+    h+='<table><thead><tr><th>季度</th><th>单季扣非</th><th>单季扣非增速</th><th>单季毛利率</th></tr></thead><tbody>';
+    h+=d.quarterly.map(q=>`<tr><td>${q.period}</td><td>${yi(q.dedt_single)}</td><td>${pc(q.dedt_yoy)}</td><td>${q.gm_single==null?'-':q.gm_single+'%'}</td></tr>`).join('');
+    h+='</tbody></table><div class="note">扣非=扣除非经常性损益后净利润。<b>看单季增速是否逐季抬升(加速)+毛利率是否走阔</b>=基本面真改善;只看年度会被低基数/一次性掩盖。仅研究。</div></div>';
+    box.innerHTML=h;
+  }catch(e){ box.innerHTML='<div class="empty">基本面加载失败</div>'; }
+};
+</script>
+</body>
+</html>

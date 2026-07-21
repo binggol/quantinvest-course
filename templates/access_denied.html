@@ -1,0 +1,2 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>无权访问 · QuantInvest</title><link rel="stylesheet" href="{{ url_for('static', filename='member.css') }}"></head>
+<body class="member-shell"><main class="member-main permission-denied"><h1>{{ error_title or "无法访问" }}</h1><p>{{ message }}</p>{% if current_member %}<p><a href="{{ url_for('member_dashboard') }}">返回会员首页</a></p>{% else %}<p><a href="{{ url_for('service_info') }}">服务信息</a></p>{% endif %}</main></body></html>

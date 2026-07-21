@@ -1,0 +1,119 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>询转解禁 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1440px;margin:0 auto;padding:16px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0 12px}
+  .title{font-size:22px;font-weight:700}
+  .sub{color:#94a3b8;font-size:13px;line-height:1.6;margin-top:4px}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  input,select,button{background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:7px;padding:7px 10px;font-size:13px}
+  button{cursor:pointer}
+  button.primary{background:#1d4ed8;border-color:#1d4ed8}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .stat{background:#111827;border:1px solid #334155;border-radius:8px;padding:7px 10px;color:#cbd5e1;font-size:12px}
+  .panel{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px}
+  .scroll{overflow:auto;max-height:72vh}
+  table{border-collapse:collapse;width:100%;font-size:12px;min-width:1180px}
+  th,td{border:1px solid #1e293b;padding:6px 8px;text-align:left;white-space:nowrap}
+  th{position:sticky;top:0;background:#111827;color:#94a3b8;cursor:pointer;user-select:none;z-index:1}
+  td.num{text-align:right}
+  .muted{color:#64748b}.warn{color:#fbbf24}.bad{color:#fca5a5}.ok{color:#86efac}
+  .pill{display:inline-block;border-radius:999px;padding:1px 7px;background:#1e293b;color:#cbd5e1;font-size:11px}
+  a.link{color:#7dd3fc;text-decoration:none}
+  .empty{padding:24px;color:#94a3b8;text-align:center}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="title">询价转让 / 协议转让解禁</div>
+      <div class="sub">按公告缓存展示转让公告、转让/定价时间、预计 6 个月解禁日。最近 8 个月和未来 90 天可重点过滤，所有字段都可点击表头排序。</div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <input id="q" placeholder="搜索代码、名称、标题、来源" oninput="render()"/>
+    <select id="scope" onchange="render()">
+      <option value="">全部记录</option>
+      <option value="focus8m">最近8个月公告</option>
+      <option value="year">最近一年公告</option>
+      <option value="near">未来90天解禁</option>
+      <option value="past">已过解禁</option>
+      <option value="nodate">无解禁日</option>
+    </select>
+    <button id="retry" type="button" style="display:none">重新加载</button>
+    <span id="status" class="muted">加载中...</span>
+  </div>
+  <div id="stats" class="stats"></div>
+  <div class="panel"><div id="table" class="scroll"></div></div>
+</div>
+<script>
+let ITEMS=[], SUMMARY={}, UPDATED="", SORT={k:"days_to_unlock",dir:1};
+const COLS=[
+  ["code","代码"],["name","简称"],["kind","类型"],["plan_date","公告/预案时间"],
+  ["issue_date","转让/定价时间"],["transfer_price","转让价"],["transfer_ratio","转让比例"],
+  ["unlock_date","解禁时间"],["days_to_unlock","距解禁天数"],["status","状态"],
+  ["dataset","来源"],["title","公告标题"]
+];
+function esc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function todayAddMonths(months){const d=new Date(),day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+months);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return d.toISOString().slice(0,10)}
+function sortBy(k){if(SORT.k===k)SORT.dir*=-1;else SORT={k,dir:1};render()}
+function cellClass(row,k){if(k!=="days_to_unlock")return "";const d=row.days_to_unlock;if(Number.isInteger(d)&&d>=0&&d<=30)return "bad";if(Number.isInteger(d)&&d>=0&&d<=90)return "warn";if(Number.isInteger(d)&&d<0)return "muted";return ""}
+function cmp(a,b){const k=SORT.k,av=a[k]??"",bv=b[k]??"",an=Number(av),bn=Number(bv);if(av!==""&&bv!==""&&!Number.isNaN(an)&&!Number.isNaN(bn))return (an-bn)*SORT.dir;return String(av).localeCompare(String(bv),"zh-CN")*SORT.dir}
+function filtered(){
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const scope=document.getElementById("scope").value;
+  const since8=todayAddMonths(-8), since12=todayAddMonths(-12);
+  return ITEMS.filter(x=>{
+    if(q&&!JSON.stringify(x).toLowerCase().includes(q))return false;
+    const ann=x.plan_date||x.issue_date||"";
+    const d=x.days_to_unlock;
+    if(scope==="focus8m"&&!(ann>=since8))return false;
+    if(scope==="year"&&!(ann>=since12))return false;
+    if(scope==="near"&&!(Number.isInteger(d)&&d>=0&&d<=90))return false;
+    if(scope==="past"&&!(Number.isInteger(d)&&d<0))return false;
+    if(scope==="nodate"&&x.unlock_date)return false;
+    return true;
+  }).sort(cmp);
+}
+function render(){
+  const rows=filtered();
+  document.getElementById("status").textContent=`${rows.length} / ${ITEMS.length} 条 · 数据更新 ${UPDATED||"-"}`;
+  document.getElementById("stats").innerHTML=[
+    ["总记录",SUMMARY.n],["最早公告",SUMMARY.earliest_ann_date||"-"],["最新公告",SUMMARY.latest_ann_date||"-"],
+    ["最早解禁",SUMMARY.earliest_unlock_date||"-"],["最晚解禁",SUMMARY.latest_unlock_date||"-"],
+    ["已过期",SUMMARY.past_unlock],["90天内",SUMMARY.near_unlock_90d],["90天后",SUMMARY.future_unlock]
+  ].map(x=>`<span class="stat">${x[0]} <b>${x[1]??"-"}</b></span>`).join("");
+  let h="<table><thead><tr>"+COLS.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}${SORT.k===c[0]?(SORT.dir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr></thead><tbody>";
+  if(!rows.length)h+=`<tr><td colspan="${COLS.length}" class="empty">${ITEMS.length?"当前筛选条件下没有记录":"暂无询价转让事件数据"}</td></tr>`;
+  h+=rows.map(x=>"<tr>"+COLS.map(c=>{
+    let v=x[c[0]];
+    if(c[0]==="title"&&x.url)v=`<a class="link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title||"公告")}</a>`;
+    else if(c[0]==="status")v=v?`<span class="pill">${esc(v)}</span>`:"";
+    else v=esc(v);
+    return `<td class="${c[0]==='days_to_unlock'||c[0].includes('price')||c[0].includes('ratio')?'num ':''}${cellClass(x,c[0])}">${v||"<span class='muted'>-</span>"}</td>`;
+  }).join("")+"</tr>").join("");
+  document.getElementById("table").innerHTML=h+"</tbody></table>";
+}
+async function load(){
+  document.getElementById("retry").style.display="none";
+  document.getElementById("status").textContent="加载中...";
+  const response=await fetch("/api/transfer_events",{cache:"no-store"});
+  const d=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(d.message||d.error||`HTTP ${response.status}`);
+  ITEMS=d.items||[]; SUMMARY=d.summary||{}; UPDATED=d.updated||""; render();
+}
+document.getElementById("retry").addEventListener("click",()=>load().catch(showError));
+function showError(e){document.getElementById("status").textContent="加载失败: "+e.message;document.getElementById("retry").style.display="inline-block";document.getElementById("table").innerHTML='<div class="empty">询价转让事件暂时无法加载</div>'}
+load().catch(showError);
+</script>
+</body>
+</html>
+
+

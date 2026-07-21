@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>顾问 Pro · 组合参数回测</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+:root{color-scheme:dark}
+.btp{max-width:1420px;margin:0 auto;padding:14px 18px 40px}
+.btp-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;padding:8px 0 18px;border-bottom:1px solid #253247}
+.btp-head h2{margin:0;color:#f1f5f9;font-size:24px;letter-spacing:0}.btp-head p{margin:6px 0 0;color:#94a3b8;font-size:13px}
+.btp-back{color:#93c5fd;text-decoration:none;font-size:13px;white-space:nowrap}.btp-back:hover{color:#dbeafe}
+.decision{display:grid;grid-template-columns:minmax(260px,1.5fr) repeat(4,minmax(120px,.7fr));border-bottom:1px solid #253247}
+.decision-main,.metric{padding:18px 18px 17px 0}.metric{padding-left:18px;border-left:1px solid #253247}
+.decision-main .label,.metric .label{color:#7f8da3;font-size:11px}.decision-main strong{display:block;color:#e2e8f0;font-size:18px;margin-top:5px}.decision-main span{display:block;color:#94a3b8;font-size:12px;margin-top:5px}
+.metric strong{display:block;color:#f8fafc;font-size:23px;margin-top:4px}.metric.risk strong{color:#34d399}.metric.cost strong{color:#fbbf24}
+.band{padding:20px 0;border-bottom:1px solid #253247}.band:last-child{border-bottom:0}.band-title{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.band-title h3{margin:0;color:#e2e8f0;font-size:15px}.band-title .sub{color:#718096;font-size:11px}
+.segmented{display:inline-flex;border:1px solid #334155;border-radius:7px;overflow:hidden}.segmented button{border:0;border-right:1px solid #334155;background:#0b1220;color:#94a3b8;padding:7px 13px;font-size:12px;cursor:pointer}.segmented button:last-child{border-right:0}.segmented button.active{background:#2563eb;color:#fff}
+.figure-shell{width:100%;background:#f7f8fa;border:1px solid #253247;border-radius:6px;overflow:hidden;min-height:360px}.figure-shell img{display:block;width:100%;height:auto;aspect-ratio:8/5;object-fit:contain}.figure-shell.loading{display:grid;place-items:center;color:#94a3b8;background:#0b1220}
+.split{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(330px,.8fr);gap:28px}.bt-table{width:100%;border-collapse:collapse;font-size:12px}.bt-table th,.bt-table td{padding:9px 8px;border-bottom:1px solid #1e293b;text-align:right}.bt-table th{color:#718096;font-weight:500}.bt-table th:first-child,.bt-table td:first-child{text-align:left}.bt-table td{color:#cbd5e1}.bt-table td.em{color:#f8fafc;font-weight:700}.bt-table td.good{color:#34d399}.bt-table td.warnv{color:#fbbf24}
+.method{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:#253247;border:1px solid #253247;border-radius:6px;overflow:hidden}.method>div{background:#0f172a;padding:14px}.method b{display:block;color:#e2e8f0;font-size:12px}.method span{display:block;color:#8896aa;font-size:11px;line-height:1.6;margin-top:5px}
+.risk-note{border-left:3px solid #f59e0b;background:#1d170a;color:#d9c79a;padding:12px 14px;font-size:12px;line-height:1.7}.loading-text{color:#94a3b8;padding:20px 0}.error{color:#fca5a5}
+@media(max-width:900px){.btp{padding:10px 12px 32px}.btp-head{align-items:flex-start}.decision{grid-template-columns:repeat(2,1fr)}.decision-main{grid-column:1/-1}.metric{border-top:1px solid #253247}.metric:nth-child(2n){border-left:0;padding-left:0}.split{grid-template-columns:1fr}.method{grid-template-columns:1fr}.figure-shell{min-height:220px;overflow:auto}.figure-shell img{min-width:760px}.bt-table{min-width:690px}.table-scroll{overflow:auto}}
+</style>
+</head>
+<body>
+<header class="screen-header">
+  <h1>quantinvest</h1>
+  {% include "_nav.html" %}
+</header>
+
+<main class="btp">
+  <div class="btp-head">
+    <div><h2>顾问 Pro · 组合参数回测</h2><p id="meta">加载回测汇总...</p></div>
+    <a class="btp-back" href="/advisor-pro">返回顾问 Pro</a>
+  </div>
+
+  <section class="decision" aria-label="推荐参数与核心指标">
+    <div class="decision-main"><div class="label">本轮综合推荐</div><strong id="recommended">Top8 / 15日 / 最多换2只</strong><span>3个等资金子组合错峰，每周只调整其中一组</span></div>
+    <div class="metric"><div class="label">2022–2024 年化</div><strong id="k-ann">—</strong></div>
+    <div class="metric"><div class="label">Sharpe</div><strong id="k-sharpe">—</strong></div>
+    <div class="metric risk"><div class="label">最大回撤</div><strong id="k-mdd">—</strong></div>
+    <div class="metric cost"><div class="label">双倍成本年化</div><strong id="k-double">—</strong></div>
+  </section>
+
+  <section class="band">
+    <div class="band-title"><h3>回测曲线</h3><div class="segmented" role="tablist" aria-label="图表切换"><button class="active" type="button" data-chart="overview" role="tab" aria-selected="true">回测总览</button><button type="button" data-chart="capacity" role="tab" aria-selected="false">容量压力</button></div></div>
+    <div id="figure" class="figure-shell loading"><span>图表加载中...</span></div>
+  </section>
+
+  <section class="band split">
+    <div>
+      <div class="band-title"><h3>参数评价区间对比</h3><span class="sub">2022-01-01 至 2024-12-31</span></div>
+      <div class="table-scroll"><table class="bt-table"><thead><tr><th>方案</th><th>资金口径</th><th>年化</th><th>Sharpe</th><th>最大回撤</th><th>双倍成本年化</th><th>单边换手/年</th></tr></thead><tbody id="scenario-rows"><tr><td colspan="7" class="loading-text">加载中...</td></tr></tbody></table></div>
+    </div>
+    <div>
+      <div class="band-title"><h3>成交质量</h3><span class="sub">三组错峰合计</span></div>
+      <div class="table-scroll"><table class="bt-table"><thead><tr><th>方案</th><th>未成交</th><th>部分成交</th><th>不完整成交</th></tr></thead><tbody id="execution-rows"><tr><td colspan="4" class="loading-text">加载中...</td></tr></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="band-title"><h3>回测口径</h3><span class="sub">日线事件驱动成交模拟</span></div>
+    <div class="method">
+      <div><b>组合结构</b><span>每个子组合持有评分最高的8只；每15个交易日复核，最多替换2只；3组错开一周。</span></div>
+      <div><b>成交约束</b><span>包含佣金、成交量限制、冲击成本、涨跌停与停牌约束；双倍成本线是在已扣成本后再扣一次实际成本。</span></div>
+      <div><b>评价方法</b><span>共搜索142组参数并补测调仓偏移。2022–2024已参与参数选择，2025以后只作为观察区间。</span></div>
+    </div>
+  </section>
+
+  <section class="band"><div class="risk-note">全历史高收益明显受2020年影响；1亿元严格容量情景出现较多部分成交。页面用于比较历史统计与执行约束，不应把全历史年化直接外推为未来收益。</div></section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const pct=(value,digits=2)=>value==null?'—':`${(Number(value)*100).toFixed(digits)}%`;
+const num=(value,digits=3)=>value==null?'—':Number(value).toFixed(digits);
+function showChart(name){
+  document.querySelectorAll('[data-chart]').forEach(button=>{const active=button.dataset.chart===name;button.classList.toggle('active',active);button.setAttribute('aria-selected',active?'true':'false')});
+  const figure=$('figure');figure.className='figure-shell loading';figure.innerHTML='<span>图表加载中...</span>';
+  const img=new Image();img.alt=name==='overview'?'顾问Pro回测总览':'顾问Pro一亿元容量压力测试';
+  img.onload=()=>{figure.className='figure-shell';figure.replaceChildren(img)};
+  img.onerror=()=>{figure.className='figure-shell loading error';figure.innerHTML='<span>图表加载失败</span>'};
+  img.src=`/api/advisor-pro/backtest/chart/${name}?v=${Date.now()}`;
+}
+function render(data){
+  const scenarios=data.scenarios||[],standard=scenarios.find(item=>item.key==='standard');
+  const validation=standard?.periods?.validation_2022_2024||{},doubleCost=standard?.double_cost_periods?.validation_2022_2024||{};
+  $('recommended').textContent=data.selection?.recommended||'Top8 / 15日 / 最多换2只 / 3组错峰';
+  $('meta').textContent=`数据截至 ${data.selection?.data_end||'—'} · 搜索 ${data.selection?.tested_configurations||'—'} 组参数 · 评价区间 ${data.selection?.evaluation_period||'—'}`;
+  $('k-ann').textContent=pct(validation.annualized_return);$('k-sharpe').textContent=num(validation.sharpe);$('k-mdd').textContent=pct(validation.max_drawdown);$('k-double').textContent=pct(doubleCost.annualized_return);
+  $('scenario-rows').innerHTML=scenarios.map(item=>{const m=item.periods?.validation_2022_2024||{},dc=item.double_cost_periods?.validation_2022_2024||{};return `<tr><td class="em">${item.label}</td><td>${item.capital_label}</td><td class="em">${pct(m.annualized_return)}</td><td>${num(m.sharpe)}</td><td class="good">${pct(m.max_drawdown)}</td><td class="warnv">${pct(dc.annualized_return)}</td><td>${num(item.turnover?.annualized_one_way_median,2)}x</td></tr>`}).join('');
+  $('execution-rows').innerHTML=scenarios.map(item=>{const q=item.execution_quality||{};return `<tr><td class="em">${item.label}</td><td>${pct(q.no_fill_rate)}</td><td>${pct(q.partial_fill_rate)}</td><td class="${Number(q.incomplete_fill_rate||0)>.2?'warnv':''}">${pct(q.incomplete_fill_rate)}</td></tr>`}).join('');
+}
+async function load(){try{const response=await fetch('/api/advisor-pro/backtest/summary',{cache:'no-store'}),data=await response.json();if(!response.ok)throw new Error(data.message||`HTTP ${response.status}`);render(data)}catch(error){$('meta').textContent=`回测汇总加载失败：${error.message}`;$('meta').classList.add('error')}}
+document.querySelectorAll('[data-chart]').forEach(button=>button.addEventListener('click',()=>showChart(button.dataset.chart)));
+showChart('overview');load();
+</script>
+</body>
+</html>

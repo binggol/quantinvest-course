@@ -1,0 +1,121 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>股票池对比 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:960px;margin:0 auto;padding:16px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+  select{background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;padding:5px 9px;border-radius:7px;font-size:13px}
+  #run,#runall{border:none;color:#fff;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+  #run{background:#166534}#runall{background:#1e3a8a}
+  #st{color:#94a3b8;font-size:12px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+  th,td{border:1px solid #1e293b;padding:6px 10px;text-align:center}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#111827;color:#94a3b8}
+  .dim{color:#475569}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .warn{background:#1f1604;border:1px solid #92400e;color:#fcd34d;font-size:12px;padding:8px 12px;border-radius:6px;margin:8px 0;line-height:1.5}
+  .best{outline:2px solid #34d399}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>用<b>全 Alpha158</b>(158因子), 把各模型在<b>沪深300(大盘) / 中证500(中盘) / 中证1000(小盘) / 全市场</b>四个股票池上分别回测。<b>行=模型, 列=股票池, 格子=该模型在该池的 IR(信息比率)</b>。<b>横向读一行</b>=同一个模型在 4 个池的对比(看它在哪个池 alpha 更强);<b>纵向读一列</b>=该池里哪个模型最好(每列最优描绿框)。越绿越好。下方可补跑某池某模型。<b>仅供研究。</b></div></details>
+  <div class="wrap">
+    <div class="warn">⚠️ <b>全市场(all)的高 IR 多半是假象</b>: 含大量 ST/微盘/低流动性票, 模型爱选但实盘买不进、冲击成本巨大。小盘(csi1000)alpha 通常更大但成本/容量更差。<b>看"哪个池好"要结合可交易性, 别只看 IR。</b></div>
+    <div class="bar">
+      池 <select id="u"><option value="csi300">沪深300</option><option value="csi500">中证500</option><option value="csi1000">中证1000</option><option value="all">全市场</option></select>
+      模型 <select id="m"><option>xgb</option><option>catboost</option><option>dlinear</option><option>lgb</option><option>ols</option><option>ridge</option><option>lasso</option><option>patchtst</option><option>timesnet</option><option>itransformer</option></select>
+      <button id="run">▶ 补跑</button>
+      <button id="runall">🚀 该池全模型</button>
+      <button id="histbtn" style="background:#1e3a5f">📜 历史留痕</button>
+      <span id="st"></span>
+    </div>
+    <div id="out" class="dim" style="padding:10px">加载中…</div>
+    <div id="flatwrap"></div>
+    <div id="histwrap" style="display:none;margin-top:14px"></div>
+  </div>
+<script>
+const $=id=>document.getElementById(id);
+const UNIVS=[["csi300","沪深300"],["csi500","中证500"],["csi1000","中证1000"],["all","全市场"]];
+const UNAME=Object.fromEntries(UNIVS);
+let POLL=null;
+let ARENA_E=[]; let SORT_KEY="ir", SORT_DESC=true;
+function setSort(k){ if(SORT_KEY===k){ SORT_DESC=!SORT_DESC; } else { SORT_KEY=k; SORT_DESC=true; } flatTable(); }
+function flatTable(){
+  const COLS=[["model","模型",r=>r.model],["universe","股票池",r=>UNAME[r.universe]||r.universe],
+    ["rank_ic","rankIC",r=>r.rank_ic==null?"-":r.rank_ic.toFixed(4)],
+    ["excess","年化超额",r=>r.excess==null?"-":(r.excess*100>=0?"+":"")+(r.excess*100).toFixed(1)+"%"],
+    ["ann","年化收益",r=>r.ann==null?"-":(r.ann*100>=0?"+":"")+(r.ann*100).toFixed(1)+"%"],
+    ["ir","IR",r=>r.ir==null?"-":r.ir.toFixed(2)],
+    ["maxdd","回撤",r=>r.maxdd==null?"-":(r.maxdd*100).toFixed(1)+"%"]];
+  const sorted=[...ARENA_E].sort((a,b)=>{ const av=a[SORT_KEY], bv=b[SORT_KEY];
+    if(av==null) return 1; if(bv==null) return -1;
+    if(typeof av==="string") return SORT_DESC? bv.localeCompare(av):av.localeCompare(bv);
+    return SORT_DESC? bv-av : av-bv; });
+  const arrow=k=> SORT_KEY===k?(SORT_DESC?" ▼":" ▲"):"";
+  let h='<div class="dim" style="margin:14px 0 4px">📊 全部结果(点表头排序: rankIC/超额/IR/回撤)</div>';
+  h+='<table id="flat"><thead><tr>'+COLS.map(c=>`<th style="cursor:pointer;user-select:none" onclick="setSort('${c[0]}')">${c[1]}${arrow(c[0])}</th>`).join('')+'</tr></thead><tbody>';
+  h+=sorted.map(r=>'<tr>'+COLS.map(c=>{ const v=c[2](r);
+    const cls=(c[0]==="rank_ic"||c[0]==="ann"||c[0]==="excess"||c[0]==="ir")?(r[c[0]]>0?'style="color:#86efac"':(r[c[0]]<0?'style="color:#fca5a5"':'')):(c[0]==="maxdd"?'style="color:#fca5a5"':'');
+    return `<td ${cls}>${v}</td>`;}).join('')+'</tr>').join('');
+  h+='</tbody></table>';
+  $("flatwrap").innerHTML=h;
+}
+function irColor(ir){ if(ir==null) return ''; const v=Math.max(-0.5,Math.min(1.6,ir)); const g=Math.round(40+150*Math.max(0,v)/1.6); return `background:rgba(${v<0?120:20},${v<0?40:g+40},${v<0?40:60},0.45)`; }
+function render(d){
+  const E=d.entries||[]; ARENA_E=E;
+  if(!E.length){ $("out").innerHTML='<div class="dim" style="padding:10px">暂无数据, 点补跑。</div>'; return; }
+  const models=[...new Set(E.map(e=>e.model))];
+  const byKey={}; E.forEach(e=>byKey[e.universe+"|"+e.model]=e);
+  // 每列(池)最优模型
+  const bestByU={}; UNIVS.forEach(([u])=>{ let b=null; models.forEach(m=>{const e=byKey[u+"|"+m]; if(e&&(b===null||e.ir>b.ir))b={m,ir:e.ir};}); bestByU[u]=b; });
+  const st=d.status||{}; const running=d.pending||st.state==="running";
+  let h=`<div class="dim" style="margin-bottom:4px">行=模型, 列=股票池, 格=IR(信息比率) ${running?('· ⏳ '+(st.msg||'回测中…')):''}</div>`;
+  h+='<table><thead><tr><th>模型 \\ 池</th>'+UNIVS.map(([u,n])=>`<th>${n}<br><span class="dim" style="font-size:10px">${u}</span></th>`).join('')+'</tr></thead><tbody>';
+  h+=models.map(m=>{
+    return `<tr><td>${m}</td>`+UNIVS.map(([u])=>{const e=byKey[u+"|"+m]; if(!e) return '<td class="dim">·</td>';
+      const best=bestByU[u]&&bestByU[u].m===m; return `<td class="${best?'best':''}" style="${irColor(e.ir)}" title="年化超额(vs基准)${e.excess==null?'-':(e.excess*100).toFixed(1)+'%'} · 年化收益(绝对)${(e.ann*100).toFixed(1)}% · 回撤${(e.maxdd*100).toFixed(1)}%">${e.ir.toFixed(2)}</td>`;}).join('')+'</tr>';
+  }).join('');
+  h+='</tbody></table>';
+  h+='<div class="note">每列绿框=该池最优模型。'+UNIVS.filter(([u])=>bestByU[u]).map(([u,n])=>`${n}最优 <b>${bestByU[u].m}</b>(IR ${bestByU[u].ir.toFixed(2)})`).join(' · ')+'</div>';
+  $("out").innerHTML=h;
+  flatTable();
+  if(running){ if(!POLL)POLL=setInterval(load,8000); } else if(POLL){ clearInterval(POLL); POLL=null; }
+}
+async function load(){ try{ const d=await (await fetch("/api/universe_arena")).json(); render(d); return d; }catch(e){ return null; } }
+async function trigger(universe,model){
+  $("run").disabled=true;$("runall").disabled=true;$("st").textContent="提交…";
+  try{ const j=await (await fetch("/api/universe_arena/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({universe,model})})).json();
+    $("st").textContent=(j.ok?"⏳ ":"⚠️ ")+j.message;
+    if(j.ok){ if(POLL)clearInterval(POLL); POLL=setInterval(load,8000); load(); }
+  }catch(e){ $("st").textContent="提交失败"; }
+  setTimeout(()=>{$("run").disabled=false;$("runall").disabled=false;},3000);
+}
+$("run").onclick=()=>trigger($("u").value,$("m").value);
+$("runall").onclick=()=>trigger($("u").value,"all");
+// 历史留痕: 每次arena计算一条(带测试期+时间), 看同一(池×模型)跨时点/时段变化
+const UN={csi300:"沪深300",csi500:"中证500",csi1000:"中证1000",all:"全市场"};
+async function loadHist(){
+  const d=await (await fetch("/api/universe_arena/history")).json();
+  const H=d.history||[];
+  if(!H.length){ $("histwrap").innerHTML='<div class="note">还没有历史留痕。以后每次回测计算都会按 时间+测试期 存一条, 这里可对比同一(池×模型)在不同时点/时段的 IR 变化。</div>'; return; }
+  let h='<div class="dim" style="margin-bottom:4px">📜 历史留痕(每次计算一条, 同一池×模型可能多条不同时段)· 共'+H.length+'条</div>';
+  h+='<table><thead><tr><th>计算时间</th><th>股票池</th><th>模型</th><th>测试期</th><th>IR</th><th>超额</th><th>回撤</th><th>rankIC</th></tr></thead><tbody>';
+  h+=H.map(r=>`<tr><td class="dim">${r.computed_at||''}</td><td>${UN[r.universe]||r.universe}</td><td>${r.model}</td><td class="dim">${r.test_start||'?'}~${r.test_end||'?'}</td>`
+    +`<td style="color:${(r.ir||0)>0?'#86efac':'#fca5a5'}">${r.ir==null?'-':(+r.ir).toFixed(2)}</td>`
+    +`<td>${r.ann==null?'-':((r.ann*100>=0?'+':'')+(r.ann*100).toFixed(1)+'%')}</td>`
+    +`<td style="color:#fca5a5">${r.maxdd==null?'-':(r.maxdd*100).toFixed(1)+'%'}</td>`
+    +`<td class="dim">${r.rank_ic==null?'-':(+r.rank_ic).toFixed(4)}</td></tr>`).join('');
+  h+='</tbody></table><div class="note">同一(池×模型)出现多行=在不同时点/不同测试期算过(如 dlinear csi300 在 2020-23 IR高、2025-26 IR低)。<b>测试期不同不可直接比 IR</b>, 要看同测试期内横向比。</div>';
+  $("histwrap").innerHTML=h;
+}
+$("histbtn").onclick=()=>{ const e=$("histwrap"); if(e.style.display==="none"){ e.style.display="block"; loadHist(); } else e.style.display="none"; };
+(async()=>{ const d=await load(); const s=(d&&d.status)||{}; if(d&&(d.pending||s.state==="running")){ if(POLL)clearInterval(POLL); POLL=setInterval(load,8000);} })();
+</script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>超短线/做T · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1050px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px;background:linear-gradient(90deg,#fbbf24,#f87171);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .bar{margin:0 0 8px}.bar button{font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer}
+  .hint{background:#1f1604;border:1px solid #92400e;color:#fcd34d;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:10px}
+  .sub{color:#94a3b8;line-height:1.7;font-size:13px;margin-bottom:10px;background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid #1e293b;padding:7px 9px;text-align:right}
+  th:nth-child(-n+3),td:nth-child(-n+3),th:last-child,td:last-child{text-align:left}
+  th{color:#94a3b8;background:#0f172a}
+  .L2{background:rgba(248,113,113,0.10)}.L1{background:rgba(250,204,21,0.05)}
+  .up{color:#f87171}.dn{color:#34d399}
+  .pbar{display:inline-block;width:60px;height:8px;background:#1e293b;border-radius:4px;vertical-align:middle;position:relative}
+  .pbar i{position:absolute;top:-2px;width:3px;height:12px;background:#fbbf24;border-radius:2px}
+  .rules{font-size:12.5px;line-height:1.9;color:#cbd5e1}.rules b{color:#fbbf24}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div class="hd">⚡ 超短线 / 做T 盘中提醒</div>
+    <div class="bar"><button id="rfbtn" onclick="doRefresh('intraday_t')">🔄 立即刷新</button> <span id="rfst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span> <span id="auto" style="color:#64748b;font-size:12px;margin-left:8px"></span></div>
+    <div class="hint" id="hint"></div>
+    <div class="sub" id="sub">加载中…</div>
+    <div id="tbl"></div>
+    <div class="sub rules" style="margin-top:12px">
+      <b>📕 做T纪律(降成本, 非赌方向)</b><br>
+      ① <b>有底仓才做T</b>: T+0用底仓高抛低吸摊低成本, 不是加仓赌涨跌。<br>
+      ② <b>高抛</b>: 现价处当日高位(位置≥75%)且高于VWAP均价、冲高滞涨 → 卖部分底仓; <b>近涨停别抛</b>(可能封板)。<br>
+      ③ <b>低吸</b>: 现价处当日低位(位置≤25%)且低于VWAP、回踩企稳 → 买回同等数量; 近跌停别接。<br>
+      ④ <b>当日纠错</b>: 卖飞/买套当天处理掉, 不留隔夜放大风险。<br>
+      ⑤ <b>超短线T+1(本系统2021-25实测)</b>: A股<b>隔夜≈0、日内微正(+0.11%)</b>; 强势股次日<b>开盘急卖只+0.01%</b>(丢掉当天+0.16%日内漂移)→<b>别开盘就割, 持到日内走强再走</b>; 别在9:30-10:00追高。<br>
+      <span style="color:#f87171">⚠️ 日内点位多为噪声+双边成本, 散户高频长期多亏。edge在纪律和成本控制, 不在预测。</span>
+    </div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script>
+function load(){
+  fetch('/api/intraday_t').then(r=>r.json()).then(d=>{
+    document.getElementById('hint').textContent=d.hint||'';
+    const a=d.rows||[];
+    document.getElementById('sub').innerHTML=`更新 <b>${d.updated||'-'}</b> · 监控 ${d.n||0} 只 · ${d.note||''}`;
+    if(!a.length){document.getElementById('tbl').innerHTML=`<div class="sub">${d.message||'无监控标的(加持仓/自选)'}</div>`;return;}
+    let h='<table><thead><tr><th>代码</th><th>名称</th><th>来源</th><th>现价</th><th>涨跌</th><th>日内位置</th><th>VWAP</th><th>vs均价</th><th>做T提示</th></tr></thead><tbody>';
+    h+=a.map(r=>{const p=Math.max(0,Math.min(100,r.pos));
+      return `<tr class="L${r.level}"><td>${r.code}</td><td>${r.name}</td><td style="font-size:11px;color:#94a3b8">${r.src||''}</td><td>${r.cur}</td><td class="${r.chg>=0?'up':'dn'}">${r.chg>=0?'+':''}${r.chg}%</td>`+
+        `<td><span class="pbar"><i style="left:${p*0.57}px"></i></span> ${r.pos.toFixed(0)}%</td><td>${r.vwap}</td><td class="${r.vs_vwap>=0?'up':'dn'}">${r.vs_vwap>=0?'+':''}${r.vs_vwap}%</td><td>${r.signal}</td></tr>`;
+    }).join('');
+    document.getElementById('tbl').innerHTML=h+'</tbody></table>';
+  }).catch(e=>{document.getElementById('tbl').innerHTML='加载失败: '+e;});
+}
+load();
+// 盘中自动刷新(每30秒); 数据由PC端 intraday_t_loop 实时更新
+setInterval(load,30000);
+document.getElementById('auto').textContent='(每30秒自动刷新)';
+</script>
+</body>
+</html>

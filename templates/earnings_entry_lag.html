@@ -1,0 +1,128 @@
+﻿<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>中报入场日回测 | quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+.wrap{max-width:1180px;margin:0 auto;padding:14px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:13px 15px;margin:12px 0}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.tabs button{border:1px solid #334155;background:#111827;color:#cbd5e1;border-radius:6px;padding:7px 10px}.tabs button.active{background:#2563eb;border-color:#3b82f6;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.kpi{background:#0b1220;border:1px solid #1e293b;border-radius:8px;padding:10px}.kpi b{font-size:22px;color:#e2e8f0}.kpi span{display:block;color:#94a3b8;font-size:12px;margin-top:2px}
+.tablewrap{overflow:auto;border:1px solid #1e293b;border-radius:8px}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px solid #1e293b;padding:7px 8px;text-align:right;vertical-align:middle}th{color:#94a3b8;background:#0f172a;position:sticky;top:0}td.l,th.l{text-align:left}
+.muted{color:#94a3b8;font-size:12px}.pos{color:#34d399}.neg{color:#f87171}.best{background:rgba(34,197,94,.12);color:#86efac;font-weight:700}
+.note{background:#111827;border:1px solid #334155;border-radius:8px;padding:10px 12px;color:#cbd5e1;font-size:12px;line-height:1.7}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <h1>中报入场日回测</h1>
+  <div class="bar">
+    <button id="rebuildBtn" onclick="rebuild()">重新测算</button>
+    <button onclick="load()">刷新</button>
+    <span id="status" class="muted">加载中...</span>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="grid" id="kpis"></div>
+  <div class="card">
+    <h2>公告后第 N 个交易日开盘买入</h2>
+    <div class="tablewrap"><table><thead><tr>
+      <th class="l">买入日</th><th>样本</th>
+      <th>5日均值</th><th>5日胜率</th>
+      <th>10日均值</th><th>10日胜率</th>
+      <th>20日均值</th><th>20日胜率</th>
+      <th>60日均值</th><th>60日胜率</th>
+    </tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>口径</h2>
+    <div id="method" class="note"></div>
+  </div>
+</div>
+<script>
+let DATA=null, ACTIVE='g20';
+const HORIZONS=['5','10','20','60'];
+const FALLBACK_LABELS=['扣非增速 >20%','扣非增速 >50%','扣非增速 >100%'];
+function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function pct(x){return x==null||x===''?'-':`${Number(x)>=0?'+':''}${Number(x).toFixed(2)}%`}
+function cls(x){return Number(x||0)>=0?'pos':'neg'}
+function activeVariant(){return (DATA&&DATA.variants||[]).find(v=>v.key===ACTIVE)||((DATA&&DATA.variants||[])[0]||{})}
+function renderTabs(){
+  const variants=(DATA&&DATA.variants)||[];
+  document.getElementById('tabs').innerHTML=variants.map(v=>
+    `<button class="${v.key===ACTIVE?'active':''}" onclick="ACTIVE='${v.key}';render()">${esc(v.label)}</button>`
+  ).join('');
+}
+function renderKpis(v){
+  const best60=(v.best_by_horizon||{})['60']||{};
+  const best20=(v.best_by_horizon||{})['20']||{};
+  const range=v.date_range||{};
+  const rows=[
+    [v.n_source_events||0,'中报事件'],
+    [v.n_codes||0,'覆盖股票'],
+    [best20.lag?`第${best20.lag}天`:'-','20日最优'],
+    [best60.lag?`第${best60.lag}天`:'-','60日最优']
+  ];
+  document.getElementById('kpis').innerHTML=rows.map(x=>`<div class="kpi"><b>${x[0]}</b><span>${x[1]}</span></div>`).join('');
+  document.getElementById('status').textContent=`更新 ${v.updated||DATA.updated||''} · ${range.ann_start||''}-${range.ann_end||''}`;
+}
+function cell(v, horizon, field){
+  const best=((activeVariant().best_by_horizon||{})[horizon]||{}).lag;
+  const isBest=field==='mean_pct'&&String(v.lag)===String(best);
+  const s=((v.summary||{})[horizon]||{});
+  const val=s[field];
+  if(field==='mean_pct')return `<td class="${isBest?'best':cls(val)}">${pct(val)}</td>`;
+  if(field==='win_rate_pct')return `<td>${val==null?'-':Number(val).toFixed(1)+'%'}</td>`;
+  return `<td>${val??'-'}</td>`;
+}
+function renderRows(v){
+  const analysis=v.entry_lag_analysis||{};
+  const lags=Object.keys(analysis).sort((a,b)=>Number(a)-Number(b));
+  document.getElementById('rows').innerHTML=lags.map(lag=>{
+    const item=analysis[lag]||{};
+    item.lag=lag;
+    const n=(((item.summary||{})['5']||{}).n)??item.n_events??'-';
+    return `<tr><td class="l">第${lag}个交易日</td><td>${n}</td>`+
+      HORIZONS.map(h=>cell(item,h,'mean_pct')+cell(item,h,'win_rate_pct')).join('')+
+      `</tr>`;
+  }).join('')||'<tr><td colspan="10" class="l muted">暂无数据</td></tr>';
+}
+function render(){
+  const variants=(DATA&&DATA.variants)||[];
+  if(!variants.find(v=>v.key===ACTIVE)&&variants[0])ACTIVE=variants[0].key;
+  const v=activeVariant();
+  renderTabs(); renderKpis(v); renderRows(v);
+  document.getElementById('method').textContent=v.method||'同一批中报业绩事件，分别按公告后第1到第5个交易日开盘买入，比较后续持有收益。';
+}
+async function load(){
+  document.getElementById('status').textContent='加载中...';
+  try{
+    DATA=await (await fetch('/api/earnings_entry_lag')).json();
+    render();
+  }catch(e){document.getElementById('status').textContent='加载失败'}
+}
+async function rebuild(){
+  const btn=document.getElementById('rebuildBtn');
+  btn.disabled=true;
+  document.getElementById('status').textContent='重算中...';
+  try{
+    DATA=await (await fetch('/api/earnings_entry_lag/rebuild',{method:'POST'})).json();
+    if(!DATA.ok&&DATA.message){document.getElementById('status').textContent=DATA.message;return}
+    render();
+  }catch(e){
+    document.getElementById('status').textContent='重算失败';
+  }finally{
+    btn.disabled=false;
+  }
+}
+load();
+</script>
+</body>
+</html>
+

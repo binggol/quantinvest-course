@@ -1,0 +1,114 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>海力士映射 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .sub{color:#94a3b8;line-height:1.7;margin-bottom:14px;font-size:13px}
+  .upd{color:#64748b;font-size:12px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:14px}
+  .sig{font-size:30px;font-weight:800;margin:6px 0}
+  .fire{color:#34d399} .wait{color:#94a3b8}
+  .hx{font-size:16px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:6px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#111827;color:#94a3b8;font-weight:600}
+  .mem{color:#fbbf24} .board{font-size:11px;padding:1px 6px;border-radius:8px;background:#1e293b;color:#cbd5e1}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;color:#cbd5e1;font-size:12.5px;line-height:1.7;margin-top:12px}
+  .warn{color:#fbbf24}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>【小卫星信号】SK海力士(纯存储)当日收涨>2% → A股半导体当日<b>尾盘(15:00前)等权买半导体篮子 → 次日收盘卖</b>(持1天)。海力士14:30收盘可知,A股15:00还能买。回测超基准~+0.3%/次、夏2-3、22-25年OOS全正(⚠️26年小样本转负,盯衰减)。三星(综合体)无效,只看海力士。半导体单边集中,仅<b>小仓</b>。</div></details>
+  <div class="wrap">
+    <div style="margin:0 0 10px"><button id="rfbtn" onclick="doRefresh('chipmap')" style="font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">🔄 刷新数据</button> <span id="rfst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span></div>
+    <div id="content">加载中…</div>
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:700;color:#cbd5e1;margin-bottom:2px">📈 SK海力士 当日实时分时 <span id="hxkpi" style="font-size:13px;font-weight:400"></span></div>
+      <div style="color:#94a3b8;font-size:11.5px;margin-bottom:4px">韩股盘中(KST 9:00-15:30 = 北京8:00-14:30)实时,距昨收%。<b>红色阈值线=+2%</b>(收盘站上→A股尾盘买半导体)。盘中波动大,可看是否接近触发。Yahoo数据,约15分钟延迟。</div>
+      <div id="hxchart" style="width:100%;height:300px;background:#0b1220;border:1px solid #1e293b;border-radius:10px"></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div style="font-weight:700;color:#cbd5e1;margin-bottom:2px">🔧 持仓半导体 · 低开高走做T <span id="dipt-meta" style="font-size:12px;font-weight:400;color:#94a3b8"></span></div>
+      <div style="color:#94a3b8;font-size:11.5px;margin-bottom:6px">仅对<b>你持有的半导体底仓</b>:今日<b>低开>0.5%</b> → 低开高走概率高(回测2019-26 开→收+0.30%/t2.6/单调),可<b>低吸做T</b>(加仓→收盘卖等量老股,当天兑现、净仓不变)。⚠️震荡市强、单边牛弱,+0.3%/次需纪律。</div>
+      <div id="dipt-content" class="empty">加载中…</div>
+    </div>
+  </div>
+<script src="/static/refresh.js"></script>
+<script>
+fetch("/api/chipmap").then(r=>r.json()).then(d=>{
+  let h=`<div class="hd">🇰🇷→🇨🇳 海力士映射信号</div><div class="upd">更新 ${d.updated||"-"}</div><div class="sub">${d.strategy||""}</div>`;
+  const fire=(d.signal||"").includes("买");
+  h+=`<div class="card" style="text-align:center">
+      <div class="hx">SK海力士(000660.KS) ${d.hynix_date||"-"}: <b style="color:${(d.hynix_ret||0)>=0?'#34d399':'#f87171'}">${d.hynix_ret!=null?((d.hynix_ret*100).toFixed(2)+'%'):'-'}</b> (阈值>${((d.threshold||0.02)*100).toFixed(0)}%)</div>
+      <div class="sig ${fire?'fire':'wait'}">${d.signal||"-"}</div>
+      <div style="color:#94a3b8;font-size:12px">${fire?'今日A股尾盘等权买下方半导体篮子,次日收盘卖':'海力士未达阈值,今日不操作'}</div></div>`;
+  if(d.track&&d.track.length){
+    h+=`<div class="card"><b>海力士近期(10日)</b><table><thead><tr><th>日期</th><th>涨跌</th><th>信号</th></tr></thead><tbody>`;
+    h+=d.track.slice().reverse().map(t=>`<tr><td>${t.date}</td><td style="color:${t.ret>=0?'#34d399':'#f87171'}">${(t.ret*100).toFixed(2)}%</td><td>${t.signal?'🟢买':'—'}</td></tr>`).join("");
+    h+=`</tbody></table></div>`;
+  }
+  if(d.basket){
+    h+=`<div class="card"><b>A股半导体篮子(等权, <span class="mem">黄=存储对标海力士</span>)</b><table><thead><tr><th>代码</th><th>名称</th><th>类</th></tr></thead><tbody>`;
+    h+=d.basket.map(b=>`<tr><td>${b.code}</td><td class="${b.mem?'mem':''}">${b.name}</td><td><span class="board">${b.mem?'存储':'半导体'}</span></td></tr>`).join("");
+    h+=`</tbody></table></div>`;
+  }
+  if(d.note) h+=`<div class="note"><span class="warn">⚠️ </span>${d.note}</div>`;
+  document.getElementById("content").innerHTML=h;
+}).catch(e=>{document.getElementById("content").innerHTML="加载失败: "+e;});
+
+// 海力士当日实时分时图(Yahoo 5min) + 阈值线
+let HXCHART=echarts.init(document.getElementById("hxchart"),null,{renderer:"canvas"});
+async function loadHynix(){
+  try{
+    const d=await (await fetch("/api/chipmap/hynix_intraday")).json();
+    if(!d.ok){ document.getElementById("hxkpi").innerHTML='<span style="color:#94a3b8">'+(d.message||"无分时")+'</span>'; return; }
+    const cp=d.cur_pct;
+    const staleTag = d.stale ? ' <b style="color:#fbbf24">⚠️'+(d.stale_msg||('数据停在'+d.date))+'</b>' : '';
+    document.getElementById("hxkpi").innerHTML=`${d.date||''} 现价 ${d.cur_price?d.cur_price.toLocaleString():'-'} KRW · <b style="color:${cp>=0?'#34d399':'#f87171'}">${cp>=0?'+':''}${cp}%</b>`
+      +` · ${cp>=2?'<b style="color:#34d399">✅已达+2%阈值</b>':'距+2%阈值还差 '+(2-cp).toFixed(2)+'%'} · ${d.market_state||''} · ${d.ts||''}`+staleTag;
+    const pts=d.points||[];
+    HXCHART.setOption({
+      backgroundColor:"transparent", tooltip:{trigger:"axis",valueFormatter:v=>v+"%"},
+      grid:{left:44,right:14,top:14,bottom:24},
+      xAxis:{type:"category",data:pts.map(p=>p.t),axisLabel:{color:"#94a3b8",fontSize:10},axisLine:{lineStyle:{color:"#334155"}}},
+      yAxis:{axisLabel:{color:"#94a3b8",fontSize:10,formatter:"{value}%"},splitLine:{lineStyle:{color:"#1e293b"}}},
+      series:[{type:"line",data:pts.map(p=>p.pct),showSymbol:false,smooth:false,
+        lineStyle:{width:2,color:(cp>=0?'#34d399':'#f87171')},
+        areaStyle:{opacity:0.12,color:(cp>=0?'#34d399':'#f87171')},
+        markLine:{silent:true,symbol:"none",data:[
+          {yAxis:2,lineStyle:{color:"#ef4444",type:"dashed"},label:{formatter:"+2% 触发阈值",color:"#fca5a5",fontSize:10,position:"insideEndTop"}},
+          {yAxis:0,lineStyle:{color:"#475569",type:"dotted"},label:{formatter:"昨收",color:"#94a3b8",fontSize:10}}]}}],
+    },true);
+  }catch(e){}
+}
+function hxInTrade(){const d=new Date(),w=d.getDay();if(w===0||w===6)return false;const t=d.getHours()*60+d.getMinutes();return t>=480&&t<=880;} // 北京8:00-14:40(韩股时段)
+loadHynix(); setInterval(()=>{if(hxInTrade())loadHynix();},60000);
+window.addEventListener("resize",()=>HXCHART.resize());
+
+// 持仓半导体 低开高走做T低吸提示
+async function loadDipt(){
+  let d; try{ d=await (await fetch("/api/chipmap/semi_dipt")).json(); }catch(e){ return; }
+  document.getElementById("dipt-meta").textContent = d.updated?`更新 ${d.updated} · 持仓半导体 ${d.n_held||0} 只 · 低开做T ${d.n_dipt||0} 只`:"";
+  if(!(d.items||[]).length){ document.getElementById("dipt-content").innerHTML=`<div style="color:#94a3b8;font-size:12.5px">${d.message||"无"}</div>`; return; }
+  let h='<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:#94a3b8"><th style="text-align:left">名称</th><th>昨收</th><th>开盘</th><th>低开%</th><th>现价</th><th>现vs开</th><th style="text-align:left">提示</th></tr></thead><tbody>';
+  h+=d.items.map(x=>`<tr style="${x.dipt?'background:rgba(52,211,153,.08)':''}">
+    <td style="text-align:left">${x.dipt?'🟢 ':''}${x.name} <span style="color:#64748b">${x.code}</span></td>
+    <td style="text-align:right">${x.pre_close!=null?x.pre_close:'-'}</td><td style="text-align:right">${x.open!=null?x.open:'-'}</td>
+    <td style="text-align:right;color:${(x.gap||0)<0?'#f87171':'#94a3b8'}">${x.gap!=null?(x.gap>0?'+':'')+x.gap+'%':'-'}</td>
+    <td style="text-align:right">${x.price!=null?x.price:'-'}</td><td style="text-align:right;color:${(x.cur_vs_open||0)>=0?'#34d399':'#f87171'}">${x.cur_vs_open!=null?(x.cur_vs_open>0?'+':'')+x.cur_vs_open+'%':'-'}</td>
+    <td style="text-align:left;color:${x.dipt?'#34d399':'#64748b'}">${x.tip}</td></tr>`).join('');
+  h+='</tbody></table>'+(d.note?`<div style="color:#64748b;font-size:11px;margin-top:6px">${d.note}</div>`:'');
+  document.getElementById("dipt-content").innerHTML=h;
+}
+loadDipt(); setInterval(()=>{if(hxInTrade())loadDipt();},60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+x-quantinvest-common: &quantinvest-common
+  image: quantinvest:latest
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    # PC computes model output and writes it to the shared directory.
+    - PREDICT_JSON=/app/qlib_data/csv_tmp/predictions.json
+  volumes:
+    - ./app.py:/app/app.py:ro
+    - ./scripts:/app/scripts:ro
+    - ./templates:/app/templates:ro
+    - ./static:/app/static:ro
+    - ./qlib_data/cn_data:/app/qlib_data/cn_data:rw
+    - ./qlib_data/csv_tmp:/app/qlib_data/csv_tmp:rw
+    - ./data:/app/data:rw
+  networks:
+    - default
+
+services:
+  quantinvest:
+    <<: *quantinvest-common
+    build: .
+    container_name: quantinvest
+    ports:
+      - "${QI_PUBLISH_HOST:-127.0.0.1}:${QI_PUBLISH_PORT:-5055}:5055"
+
+  quantinvest-scheduler:
+    <<: *quantinvest-common
+    container_name: quantinvest-scheduler
+    command: ["python", "-u", "-m", "scripts.scheduler_runner"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,time; p=os.environ.get('QI_SCHEDULER_HEARTBEAT','/tmp/quantinvest_scheduler_heartbeat'); limit=max(120,4*int(os.environ.get('QI_SCHEDULER_HEARTBEAT_INTERVAL','30'))); assert os.path.isfile(p) and time.time()-os.path.getmtime(p) < limit"]
+      interval: 60s
+      timeout: 5s
+      start_period: 120s
+      retries: 3

@@ -1,0 +1,141 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{{ "新股上市研究" if "internal_operations" in member_features else "新股上市资料" }} · QuantInvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+.wrap{max-width:1180px;margin:auto;padding:15px}.head{font-size:22px;font-weight:700}.sub{color:#94a3b8;font-size:13px;line-height:1.7;margin:5px 0 12px}
+.layout{display:grid;grid-template-columns:430px 1fr;gap:12px}.layout>*{min-width:0}.card{min-width:0;overflow-x:auto;background:#0f172a;border:1px solid #1e293b;border-radius:9px;padding:11px 13px;margin-bottom:10px}
+table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:6px 7px;border-bottom:1px solid #1e293b;text-align:right}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+th{color:#94a3b8}.row{cursor:pointer}.row:hover,.row.on{background:#17233a}.tag{padding:1px 7px;border-radius:9px;font-size:10px;background:#1e293b;color:#cbd5e1}.today{background:#7f1d1d;color:#fecaca}.week{background:#1e3a5f;color:#bfdbfe}.upcoming{background:#3f3212;color:#fde68a}
+.title{font-size:20px;font-weight:700}.meta{display:flex;gap:12px;flex-wrap:wrap;margin:7px 0;color:#cbd5e1;font-size:13px}.meta b{color:#f8fafc}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}button,.btn{border:1px solid #334155;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:6px 11px;cursor:pointer;text-decoration:none;font-size:13px}.primary{background:#166534;border-color:#166534}
+.section{margin-top:13px}.section h3{font-size:14px;color:#60a5fa;margin:4px 0 7px}.text{white-space:pre-wrap;color:#cbd5e1;font-size:13px;line-height:1.75}.dim{color:#64748b}.pos{color:#ef4444}.neg{color:#22c55e}.empty{padding:20px;color:#64748b;text-align:center}
+@media(max-width:850px){.layout{grid-template-columns:1fr}}
+@media(max-width:600px){.wrap{padding:10px}.card{padding:10px}.card table{min-width:560px}}
+</style></head>
+<body>
+{% include "_nav.html" %}
+<div class="wrap">
+  <div class="head">{{ "新股上市研究" if "internal_operations" in member_features else "新股上市资料" }}</div>
+  <div class="sub">{% if "internal_operations" in member_features %}覆盖上市当天、近7天及即将上市的新股，并提供内部研报生成入口。{% else %}覆盖上市当天、近7天及即将上市的新股，展示发行、上市和历史财务资料。{% endif %}</div>
+  <div class="layout">
+    <div>
+      <div class="card"><b>新股列表</b> <span id="stamp" class="dim"></span><div id="counts" class="sub"></div><div id="list">加载中…</div></div>
+    </div>
+    <div id="detail"><div class="card empty">从左侧选择一只新股</div></div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let CUR='',POLL=null,ITEMS=[],detailRequestNo=0;
+const INTERNAL={{ "true" if "internal_operations" in member_features else "false" }};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const asArray=value=>Array.isArray(value)?value:[];
+const num=v=>{
+ if(v==null||v==='')return'—';
+ const number=Number(v);
+ return Number.isFinite(number)?number.toLocaleString():'—';
+};
+const percent=v=>{
+ if(v==null||v==='')return'—';
+ const number=Number(v);
+ return Number.isFinite(number)?`${number>0?'+':''}${number}%`:'—';
+};
+async function jsonFetch(url,options){
+ const response=await fetch(url,options);
+ const body=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(body.error||body.message||`HTTP ${response.status}`);
+ return body;
+}
+function labelText(x){
+ if(x.group==='today')return'今日上市';
+ if(x.group==='week'){
+  const days=Number(x.days_since);
+  return `上市${Number.isFinite(days)?days:'-'}天`;
+ }
+ return'即将上市';
+}
+function labelClass(x){return x.group==='today'?'today':x.group==='week'?'week':'upcoming'}
+function labelHtml(x){return `<span class="tag ${labelClass(x)}">${esc(labelText(x))}</span>`}
+function renderList(){
+ const root=$('list');
+ if(!ITEMS.length){
+  const empty=document.createElement('div');empty.className='empty';empty.textContent='当前数据中没有近期上市新股。';root.replaceChildren(empty);return;
+ }
+ const table=document.createElement('table');
+ const thead=document.createElement('thead');const headRow=document.createElement('tr');
+ ['代码','名称','状态','上市日'].concat(INTERNAL?['研报']:[]).forEach(text=>{const th=document.createElement('th');th.textContent=text;headRow.appendChild(th)});
+ thead.appendChild(headRow);
+ const tbody=document.createElement('tbody');
+ ITEMS.forEach(x=>{
+  const tr=document.createElement('tr');tr.className=`row${CUR===x.code?' on':''}`;
+  [x.c6||x.code||'-',x.name||'-'].forEach(text=>{const td=document.createElement('td');td.textContent=String(text);tr.appendChild(td)});
+  const state=document.createElement('td');const tag=document.createElement('span');tag.className=`tag ${labelClass(x)}`;tag.textContent=labelText(x);state.appendChild(tag);tr.appendChild(state);
+  const date=document.createElement('td');date.textContent=x.list_date||'待定';tr.appendChild(date);
+  if(INTERNAL){const report=document.createElement('td');report.textContent=x.report_ready?'已生成':'待生成';tr.appendChild(report)}
+  tr.addEventListener('click',()=>pick(x.code));tbody.appendChild(tr);
+ });
+ table.append(thead,tbody);root.replaceChildren(table);
+}
+async function loadList(){
+ const d=await jsonFetch('/api/new_stocks?days=7');
+ ITEMS=asArray(d.items).filter(x=>x&&x.code);
+ const counts=d.counts&&typeof d.counts==='object'?d.counts:{};
+ $('stamp').textContent=`更新 ${d.updated||d.today||'-'}`;
+ $('counts').textContent=`今日 ${counts.today||0}｜近7天 ${counts.week||0}｜即将上市 ${counts.upcoming||0}`;
+ if(CUR&&!ITEMS.some(x=>x.code===CUR))CUR='';
+ renderList();
+ if(!CUR&&ITEMS.length)await pick(ITEMS[0].code);
+ if(!ITEMS.length){CUR='';$('detail').innerHTML='<div class="card empty">暂无可查看的新股详情</div>'}
+}
+function financial(rows){
+ rows=asArray(rows);if(!rows.length)return'<div class="dim">新股历史财务暂未取得。</div>';
+ return `<table><thead><tr><th>报告期</th><th>营收(亿)</th><th>营收增速</th><th>扣非净利(亿)</th><th>扣非增速</th><th>毛利率</th><th>ROE</th></tr></thead><tbody>${rows.map(value=>{const r=value||{};return `<tr><td>${esc(r.period||'-')}</td><td>${esc(num(r.revenue))}</td><td>${esc(percent(r.rev_yoy))}</td><td>${esc(num(r.dedt))}</td><td>${esc(percent(r.dedt_yoy))}</td><td>${esc(percent(r.gm))}</td><td>${esc(percent(r.roe))}</td></tr>`}).join('')}</tbody></table>`;
+}
+async function pick(code){
+ const ownRequest=++detailRequestNo;CUR=code;renderList();$('detail').innerHTML='<div class="card empty">加载详情…</div>';
+ try{
+  const d=await jsonFetch('/api/new_stocks/detail?code='+encodeURIComponent(code));
+  if(ownRequest!==detailRequestNo)return;
+  if(!d.ok)throw new Error(d.message||'详情不可用');
+  render(d);
+ }catch(error){if(ownRequest===detailRequestNo)$('detail').innerHTML=`<div class="card empty">${esc(error.message)}</div>`}
+}
+function render(d){const x=d.item&&typeof d.item==='object'?d.item:{},r=d.report&&typeof d.report==='object'?d.report:null;const code=String(x.code||'');const encodedCode=encodeURIComponent(code);const premium=d.premium_pct==null||d.premium_pct===''?NaN:Number(d.premium_pct);let h=`<div class="card"><div class="title">${esc(x.name||code)} <span class="dim">${esc(code)}</span></div><div class="meta"><span>${labelHtml(x)}</span><span>上市日 <b>${esc(x.list_date||'待定')}</b></span><span>板块 <b>${esc(x.board||'—')}</b></span><span>行业 <b>${esc(x.industry||'—')}</b></span></div>`;
+ h+=`<div class="meta"><span>发行价 <b>${esc(num(x.issue_price))}</b></span><span>发行PE <b>${esc(num(x.issue_pe))}</b></span><span>现价 <b>${esc(num(d.last))}</b></span><span>上市以来溢价 <b class="${Number.isFinite(premium)&&premium<0?'neg':'pos'}">${esc(percent(d.premium_pct))}</b></span></div>`;
+ h+=`<div class="meta"><span>发行数量 <b>${num(x.amount)}</b></span><span>网上发行 <b>${num(x.market_amount)}</b></span><span>募集资金 <b>${num(x.funds)}</b></span><span>中签率 <b>${num(x.ballot)}</b></span></div>`;
+ h+='<div class="actions">';
+ if(INTERNAL)h+=d.report_ready?`<a class="btn primary" href="/report?code=${encodedCode}">打开完整研报</a>`:`<button id="generate-report" class="primary" type="button">生成内部研报</button>`;
+ h+=`<a class="btn" href="/?code=${encodedCode}">查看K线</a><span id="genst" class="dim"></span></div></div>`;
+ if(INTERNAL&&r){h+=`<div class="card"><div class="section"><h3>内部研究概述</h3><div class="text">${esc(r.conclusion||'尚无结论')}</div></div><div class="section"><h3>竞争格局</h3><div class="text">${esc(r.landscape||'—')}</div></div><div class="section"><h3>竞争壁垒</h3><div class="text">${esc(r.moat||'—')}</div></div><div class="section"><h3>主要风险</h3><div class="text">${esc(r.risk||'—')}</div></div></div><div class="card"><h3>上市前财务摘要</h3>${financial(r.fin_annual)}</div>`}
+ else h+=`<div class="card"><h3>上市前财务摘要</h3>${financial(d.financials||[])}</div>`;
+ $('detail').innerHTML=h;
+ const generateButton=$('generate-report');if(generateButton)generateButton.addEventListener('click',()=>generate(code));
+}
+async function generate(code){
+ const st=$('genst');if(st)st.textContent='已提交，等待PC生成…';
+ try{
+  const r=await jsonFetch('/api/report/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+  if(st)st.textContent=r.message||'';
+  if(!r.ok)return;
+  if(POLL)clearInterval(POLL);let attempts=0,busy=false;
+  POLL=setInterval(async()=>{
+   if(busy)return;busy=true;attempts++;
+   try{
+    const d=await jsonFetch('/api/new_stocks/detail?code='+encodeURIComponent(code));
+    if(d.report_ready){clearInterval(POLL);POLL=null;render(d);await loadList();return}
+    const current=$('genst');if(current)current.textContent=`生成中…（${attempts*8}秒）`;
+    if(attempts>=75){clearInterval(POLL);POLL=null;if(current)current.textContent='生成超时，请稍后刷新查看'}
+   }catch(error){const current=$('genst');if(current)current.textContent=`状态检查失败：${error.message}`}
+   finally{busy=false}
+  },8000);
+ }catch(error){if(st)st.textContent=`提交失败：${error.message}`}
+}
+window.addEventListener('beforeunload',()=>{if(POLL)clearInterval(POLL)});
+loadList().catch(error=>{
+ ITEMS=[];renderList();$('stamp').textContent='加载失败';$('counts').textContent=error.message;
+ $('detail').innerHTML='<div class="card empty">新股资料暂时无法加载，请稍后重试</div>';
+});
+</script></body></html>

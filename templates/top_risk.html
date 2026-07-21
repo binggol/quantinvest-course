@@ -1,0 +1,171 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>见顶风险 | quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  :root{
+    --bg:#071013;--panel:#101820;--panel2:#17212b;--line:#29404b;
+    --text:#e7eef2;--muted:#8ea3ad;--red:#f05d5e;--amber:#f2b84b;
+    --green:#3fcf8e;--cyan:#5bbdd6;--blue:#6c8ee6;
+  }
+  body{background:var(--bg);color:var(--text)}
+  .topnav{background:#0d171c;border-bottom:1px solid var(--line)}
+  .wrap{max-width:1180px;margin:0 auto;padding:16px}
+  .head{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;margin:6px 0 16px}
+  .title{font-size:24px;font-weight:800}
+  .sub{font-size:12.5px;color:var(--muted);line-height:1.7}
+  .grid{display:grid;grid-template-columns:1fr 1.5fr;gap:14px;margin-bottom:14px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+  .actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+  .btn{border:1px solid #31515f;background:#16313a;color:var(--text);border-radius:6px;padding:8px 12px;font-size:13px;cursor:pointer}
+  .btn:hover{background:#1d3f4a}.btn:disabled{opacity:.55;cursor:not-allowed}
+  .market-score{font-size:56px;font-weight:900;line-height:1;color:var(--green)}
+  .market-score.watch{color:var(--amber)} .market-score.high{color:var(--red)}
+  .level{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;color:var(--muted)}
+  .level.high{border-color:#7f2f31;color:#ffc2c2;background:#2b1215}
+  .level.watch{border-color:#74551f;color:#ffe0a3;background:#261d0e}
+  .level.normal{border-color:#24593f;color:#b9f4d6;background:#0e251b}
+  .facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .fact{background:var(--panel2);border:1px solid #223643;border-radius:8px;padding:12px;min-height:84px}
+  .fact b{display:block;font-size:13px;margin-bottom:8px}
+  .fact .on{color:var(--green)} .fact .off{color:var(--muted)}
+  .metric{font-size:12px;color:var(--muted);line-height:1.8}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 8px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  th,td{padding:8px 10px;border-bottom:1px solid #223643;text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:700;background:#0d171c}
+  tr.high td{background:rgba(240,93,94,.08)}
+  tr.watch td{background:rgba(242,184,75,.07)}
+  .pos{color:var(--red)} .neg{color:var(--green)} .muted{color:var(--muted)}
+  .err{border:1px solid #7f2f31;background:#2b1215;color:#ffc2c2;border-radius:8px;padding:12px}
+  @media(max-width:760px){
+    .grid{grid-template-columns:1fr}.facts{grid-template-columns:1fr}
+    .head{display:block}.title{font-size:21px}
+    table{font-size:11.5px} th,td{padding:7px 6px}
+  }
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <div class="title">市场与板块见顶风险</div>
+        <div class="sub">复合信号：价格过热、ETF份额拥挤、动能转弱。满足越多，越接近阶段见顶风险。</div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="refreshBtn" type="button" onclick="refreshTopRisk()">刷新ETF数据</button>
+        <div class="sub" id="refreshStatus"></div>
+        <div class="sub" id="updated"></div>
+      </div>
+    </div>
+    <div id="app">加载中...</div>
+  </div>
+<script>
+const levelText={high:"高风险",watch:"预警",normal:"正常",missing:"缺数据"};
+function cls(level){return level==="high"?"high":level==="watch"?"watch":level==="normal"?"normal":"missing";}
+function pct(v){if(v===null||v===undefined||Number.isNaN(v))return '<span class="muted">-</span>'; return `<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${v.toFixed(2)}%</span>`}
+function yes(v){return v?'<span class="on">触发</span>':'<span class="off">未触发</span>'}
+function marketBlock(m){
+  const level=cls(m.level);
+  const mf=m.money_outflow||{};
+  return `<div class="grid">
+    <section class="panel">
+      <div class="level ${level}">${levelText[m.level]||m.level||"-"}</div>
+      <div class="market-score ${level}">${m.score??0}</div>
+      <div class="metric">${m.name||"市场"} · ${m.as_of||"-"} · 收盘 ${m.close??"-"}</div>
+      <div class="metric">5日 ${pct(m.ret_5d_pct)} · 20日 ${pct(m.ret_20d_pct)} · 份额5日 ${pct(m.share_chg_5d_pct)}</div>
+      <div class="metric">市场资金净流 ${pct(mf.market_net_ratio_pct)} · 3日流出 ${pct(mf.outflow_3d_pct)} · 5日流出 ${pct(mf.outflow_5d_pct)}</div>
+    </section>
+    <section class="facts">
+      <div class="fact"><b>价格过热</b>${yes(m.overheat)}<div class="metric">20日收益分位 ${m.ret20_pctile??"-"}% · 近60日高位 ${m.near_high?"是":"否"}</div></div>
+      <div class="fact"><b>份额拥挤</b>${yes(m.crowding)}<div class="metric">份额增速分位 ${m.flow_pctile??"-"}%</div></div>
+      <div class="fact"><b>动能转弱</b>${yes(m.weakness)}<div class="metric">市场口径为近5日收益转负</div></div>
+    </section>
+  </div>`;
+}
+function sectorRows(rows){
+  return rows.map(r=>`<tr class="${cls(r.level)}">
+    <td><b>${r.name}</b><div class="muted">${r.code} · ${levelText[r.level]||r.level}</div></td>
+    <td>${r.score??0}</td>
+    <td>${r.overheat?'是':'否'}</td>
+    <td>${r.crowding?'是':'否'}</td>
+    <td>${r.weakness?'是':'否'}</td>
+    <td>${pct(r.share_chg_5d_pct)}</td>
+    <td>${r.flow_pctile??'-'}%</td>
+    <td>${pct(r.ret_5d_pct)}</td>
+    <td>${pct(r.benchmark_ret_5d_pct)}</td>
+    <td>${pct(r.ret_20d_pct)}</td>
+  </tr>`).join("");
+}
+async function load(){
+  const box=document.getElementById("app");
+  try{
+    const data=await (await fetch("/api/top_risk?_="+Date.now())).json();
+    if(data.message){box.innerHTML=`<div class="err">${data.message}</div>`;return;}
+    document.getElementById("updated").textContent="更新 "+(data.updated||"-");
+    const c=data.counts||{};
+    box.innerHTML=marketBlock(data.market||{})+`
+      <div class="toolbar">
+        <div class="sub">板块 ETF 风险排序</div>
+        <div class="chips"><span class="chip">高风险 ${c.high||0}</span><span class="chip">预警 ${c.watch||0}</span><span class="chip">正常 ${c.normal||0}</span><span class="chip">缺数据 ${c.missing||0}</span></div>
+      </div>
+      <table><thead><tr><th>板块</th><th>分数</th><th>过热</th><th>拥挤</th><th>转弱</th><th>份额5日</th><th>份额分位</th><th>5日</th><th>沪深300 5日</th><th>20日</th></tr></thead>
+      <tbody>${sectorRows(data.sectors||[])}</tbody></table>`;
+  }catch(e){
+    box.innerHTML=`<div class="err">加载失败: ${e}</div>`;
+  }
+}
+async function refreshTopRisk(){
+  const btn=document.getElementById("refreshBtn");
+  const status=document.getElementById("refreshStatus");
+  btn.disabled=true;
+  status.textContent="提交刷新...";
+  try{
+    const r=await (await fetch("/api/refresh/top_risk",{method:"POST"})).json();
+    if(!r.ok){
+      status.textContent=r.message||"刷新请求失败";
+      btn.disabled=false;
+      return;
+    }
+    status.textContent=r.message||"已提交";
+    let tries=0;
+    const timer=setInterval(async()=>{
+      tries+=1;
+      try{
+        const s=await (await fetch("/api/refresh/status?_="+Date.now())).json();
+        if(s.kind && s.kind!=="top_risk") return;
+        if(s.msg) status.textContent=s.msg+(s.updated_at?` · ${s.updated_at}`:"");
+        if(s.state==="done"){
+          clearInterval(timer);
+          btn.disabled=false;
+          status.textContent=s.msg||"刷新完成";
+          load();
+        }else if(s.state==="error"){
+          clearInterval(timer);
+          btn.disabled=false;
+          status.textContent=s.msg||"刷新失败";
+        }else if(tries>180){
+          clearInterval(timer);
+          btn.disabled=false;
+          status.textContent="刷新仍在后台运行，请稍后重载页面";
+        }
+      }catch(e){}
+    },4000);
+  }catch(e){
+    status.textContent="提交失败: "+e;
+    btn.disabled=false;
+  }
+}
+load();
+</script>
+</body>
+</html>
+
+

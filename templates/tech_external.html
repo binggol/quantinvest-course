@@ -1,0 +1,93 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>科技外部信号 · quantinvest</title>
+  <script src="/static/echarts.min.js"></script>
+  <style>
+    body{margin:0;background:#07111f;color:#e5edf7;font:14px/1.5 system-ui,"Microsoft YaHei"}
+    .topnav{padding:10px 18px;background:#0b1725}.topnav a{color:#9fb4ca;text-decoration:none;margin-right:10px}.topnav .active{color:#67e8f9}
+    .wrap{max-width:1180px;margin:0 auto;padding:18px}.titlebar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+    h1{font-size:24px;margin:0}.muted{color:#8fa4bd}.panel{background:#102033;border:1px solid #29445f;border-radius:8px;padding:14px}
+    .grid{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-top:14px}.triple{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+    .state{font-size:30px;font-weight:800}.trade{color:#34d399}.watch{color:#fbbf24}.avoid{color:#f87171}
+    .kpi{font-size:22px;font-weight:750}.good{color:#34d399}.bad{color:#f87171}.pill{display:inline-block;border:1px solid #31516e;border-radius:999px;padding:4px 9px;margin:3px;color:#d7e5f2;background:#132b41;font-size:12px}
+    button{padding:8px 13px;background:#0e7490;color:#ecfeff;border:1px solid #22d3ee;border-radius:8px;cursor:pointer}
+    table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{border-bottom:1px solid #29445f;padding:7px 6px;text-align:left}th{color:#8fa4bd;font-weight:600}
+    .chart{height:280px}.rule{padding:8px 0;border-bottom:1px solid #29445f}.rule:last-child{border-bottom:0}
+    .flow-tip{margin-top:12px;padding:10px 12px;border:1px solid #3b4d68;border-left:4px solid #f59e0b;background:#0d1728;border-radius:8px;color:#dbeafe;line-height:1.7}
+    .flow-tip b{color:#fde68a}.flow-tip span{color:#93c5fd}
+    @media(max-width:900px){.grid,.triple{grid-template-columns:1fr}.chart{height:240px}}
+  </style>
+</head>
+<body>
+{% include "_nav.html" %}
+<main class="wrap">
+  <div class="titlebar">
+    <div><h1>科技外部信号</h1><div class="muted">海外科技链先动时，给 A 股半导体、存储、HBM、封测、PCB、光模块做盘中映射候选。</div></div>
+    <div><button id="rfbtn" onclick="doRefresh('chipmap')">刷新海力士/映射</button> <span id="rfst" class="muted"></span></div>
+  </div>
+
+  <section class="flow-tip">
+    <b>上午买入拦截（历史测算）：</b>
+    默认口径68个事件日，次日开盘到收盘回落48.5%，盘中跌超1.5%：48.5%，盘中跌超2%：42.6%。
+    严格口径16个严格事件日，次日开盘到收盘回落37.5%，盘中跌超1.5%：62.5%，盘中跌超2%：62.5%。
+    结论只对应上述测算：风险主要在上午盘中下探，不是收盘必跌；上午不追买，下午重新站回开盘价和VWAP后再评估。
+    <div style="margin-top:8px">
+      <b>个股放量下跌（历史测算）：</b>
+      981只科技股、2021-01-04至2026-07-09。单纯高开放量下跌23649次，次日中位数0.00%、下跌概率49.9%；若前一日强势上涨后再高开放量下跌8844次，次日均值-0.17%、中位数-0.18%、下跌概率51.3%，2日/3日下跌概率54.3%/55.4%。但同日达到20只个股共振时，次日均值+0.88%、中位数+0.65%、下跌概率33.8%。结论：单票不追；板块共振才看次日修复。
+    </div>
+  </section>
+  <section id="hero" class="panel" style="margin-top:14px">加载中...</section>
+  <section class="grid">
+    <div class="panel"><h2>海外锚：SK海力士</h2><div id="hynix-chart" class="chart"></div></div>
+    <div class="panel"><h2>触发规则</h2><div id="rules"></div></div>
+  </section>
+  <section class="triple">
+    <div class="panel"><h2>半导体映射篮子</h2><div id="semi"></div></div>
+    <div class="panel"><h2>存储/跨市场强映射</h2><div id="storage"></div></div>
+    <div class="panel"><h2>风险提示</h2><div id="risk"></div></div>
+  </section>
+</main>
+<script src="/static/refresh.js"></script>
+<script>
+const chart=echarts.init(document.getElementById("hynix-chart"));
+const stateLabel={trade:"可做",watch:"观察",avoid:"禁做"};
+function pct(v){return v==null?"-":`${v>=0?"+":""}${Number(v).toFixed(2)}%`}
+function cls(v){return v>=0?"good":"bad"}
+function rows(items, fallback){
+  if(!items||!items.length)return `<div class="muted">${fallback}</div>`;
+  return `<table><thead><tr><th>代码</th><th>名称</th><th>标签</th></tr></thead><tbody>`+
+    items.map(x=>`<tr><td>${x.code||x.symbol||"-"}</td><td>${x.name||"-"}</td><td>${x.mem?"存储":(x.score!=null?"强度 "+x.score:"映射")}</td></tr>`).join("")+
+    `</tbody></table>`;
+}
+function drawHynix(anchor){
+  const pts=anchor.points||[];
+  chart.setOption({
+    backgroundColor:"transparent",
+    tooltip:{trigger:"axis",valueFormatter:v=>v+"%"},
+    grid:{left:42,right:12,top:16,bottom:24},
+    xAxis:{type:"category",data:pts.map(p=>p.t),axisLabel:{color:"#8fa4bd",fontSize:10},axisLine:{lineStyle:{color:"#31516e"}}},
+    yAxis:{axisLabel:{color:"#8fa4bd",formatter:"{value}%"},splitLine:{lineStyle:{color:"#29445f"}}},
+    series:[{type:"line",showSymbol:false,data:pts.map(p=>p.pct),lineStyle:{width:2,color:"#67e8f9"},areaStyle:{opacity:.1,color:"#67e8f9"},
+      markLine:{silent:true,symbol:"none",data:[{yAxis:2,lineStyle:{color:"#f87171",type:"dashed"},label:{formatter:"+2% 阈值",color:"#fca5a5"}}]}}]
+  },true);
+}
+async function load(){
+  const d=await fetch(`/api/tech-external?_=${Date.now()}`,{cache:"no-store"}).then(r=>r.json());
+  const h=d.anchors.hynix||{};
+  document.getElementById("hero").innerHTML=`<div class="state ${d.state}">${stateLabel[d.state]||d.state}</div>
+    <div style="font-size:18px;margin-top:4px">${d.action}</div>
+    <div class="muted">更新 ${d.updated||"-"} · ${h.name||"SK海力士"} ${h.date||""} <span class="${cls(h.pct||0)}">${pct(h.pct)}</span> · 阈值 ${pct(h.threshold)} · 趋势 ${h.trend||"-"}</div>`;
+  document.getElementById("rules").innerHTML=(d.rules||[]).map(r=>`<div class="rule"><span class="pill">${stateLabel[r.state]||r.state}</span>${r.text}</div>`).join("");
+  document.getElementById("semi").innerHTML=rows(d.baskets.semiconductor,"暂无半导体篮子，先刷新海力士映射。");
+  document.getElementById("storage").innerHTML=rows(d.baskets.storage,"暂无跨市场强映射，先刷新跨市场映射。");
+  document.getElementById("risk").innerHTML=(d.risk||[]).map(x=>`<div class="rule">${x}</div>`).join("");
+  drawHynix(h);
+}
+load(); setInterval(load,60000); window.addEventListener("resize",()=>chart.resize());
+</script>
+</body>
+</html>
+

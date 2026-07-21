@@ -1,0 +1,117 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Alpha158 模型擂台 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<style>
+  .wrap{max-width:880px;margin:0 auto;padding:16px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .mbtn{background:#0b1220;border:1px solid #1e293b;color:#cbd5e1;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+  .mbtn.sel{border-color:#3b82f6;color:#fff;background:#15233b}
+  .mbtn.deep{border-style:dashed}
+  #run{background:#166534;border:none;color:#fff;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:14px}
+  #run:disabled{opacity:.5;cursor:not-allowed}
+  #st{color:#94a3b8;font-size:13px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+  th,td{border:1px solid #1e293b;padding:6px 10px;text-align:right}
+  th:nth-child(2),td:nth-child(2){text-align:left}
+  th{background:#111827;color:#94a3b8}
+  .pos{color:#34d399}.neg{color:#f87171}.dim{color:#475569}
+  tr.top td{background:#0c1f1a}
+  .fam{font-size:10px;color:#a78bfa;border:1px solid #4c1d95;border-radius:8px;padding:1px 6px;margin-left:4px}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  nav.topnav{flex-wrap:wrap !important;row-gap:6px;overflow:visible}
+  nav.topnav .navbreak{flex-basis:100% !important;width:100%;height:1px;margin:4px 0;background:#1e293b;border:0}
+  nav.topnav .navlabel{color:#a78bfa;font-size:12px;align-self:center;margin-right:2px}
+  nav.topnav a small{color:#64748b;font-size:10px;margin-left:2px}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>各模型在<b>完全相同的全 Alpha158(158因子)+沪深300</b>数据上的回测排名(train2010-17/valid18-19/test2020-23, TopkDropout50, 含成本)。隔离了"模型效应"——同数据下谁更强一目了然。点模型→运行可补跑(深度模型较慢)。<b>仅供研究。</b></div></details>
+  <div class="wrap">
+    <div class="bar"><span style="color:#64748b;font-size:12px">补跑模型:</span><span id="mbtns"></span></div>
+    <div class="bar"><button id="run">▶ 在 Alpha158 上回测该模型</button> <button id="runall" style="background:#1e3a8a">🚀 一键全跑(所有模型)</button> <span id="st"></span></div>
+    <div class="note">含成本超额(年化) · IR=信息比率(风险调整后, 越高越稳) · 按 IR 降序。深度时序(虚线框)训练较慢。</div>
+    <div id="chart" style="width:100%;height:360px;margin:6px 0"></div>
+    <div id="out" style="color:#64748b;padding:10px">加载中…</div>
+  </div>
+<script>
+const MODELS=[["lgb","LGB"],["xgb","XGB"],["catboost","CatBoost"],["ols","OLS"],["ridge","Ridge"],["lasso","Lasso"],
+  ["dlinear","DLinear",1],["patchtst","PatchTST",1],["timesnet","TimesNet",1],["itransformer","iTransformer",1]];
+let SEL="catboost", POLL=null;
+const $=id=>document.getElementById(id);
+function renderBtns(){
+  $("mbtns").innerHTML=MODELS.map(m=>`<button class="mbtn ${m[2]?'deep':''} ${m[0]===SEL?'sel':''}" data-m="${m[0]}">${m[1]}</button>`).join(" ");
+  $("mbtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{SEL=b.dataset.m;renderBtns();});
+}
+function pct(x){ if(x===null||x===undefined) return '<span class="dim">—</span>'; const v=(x*100); return (v>0?'<span class="pos">+':'<span class="neg">')+v.toFixed(2)+'%</span>'; }
+function render(models){
+  if(!models||!models.length){ $("out").innerHTML='<div class="dim" style="padding:10px">暂无擂台数据, 点运行回测。</div>'; return; }
+  let h='<table><thead><tr><th>#</th><th>模型</th><th>IR</th><th>年化超额</th><th>最大回撤</th><th>RankIC</th><th>更新</th></tr></thead><tbody>';
+  h+=models.map((m,i)=>`<tr class="${i===0?'top':''}"><td>${i+1}</td><td>${m.model}${m.family==='ptnn'?'<span class="fam">深度</span>':''}</td><td><b>${(m.ir??0).toFixed(3)}</b></td><td>${pct(m.ann)}</td><td>${pct(m.maxdd)}</td><td>${m.rank_ic==null?'<span class="dim">—</span>':(+m.rank_ic).toFixed(4)}</td><td class="dim" style="font-size:11px">${(m.updated_at||'').slice(5,16)}</td></tr>`).join('');
+  $("out").innerHTML=h+'</tbody></table>';
+  renderChart(models);
+}
+let CHART=null;
+function renderChart(models){
+  if(!models||!models.length) return;
+  if(!CHART) CHART=echarts.init(document.getElementById("chart"));
+  const names=models.map(m=>m.model);
+  CHART.setOption({
+    backgroundColor:"transparent",
+    tooltip:{trigger:"axis"},
+    legend:{data:["IR","年化超额%","最大回撤%"],textStyle:{color:"#94a3b8"},top:0},
+    grid:{left:40,right:40,top:30,bottom:50},
+    xAxis:{type:"category",data:names,axisLabel:{color:"#cbd5e1",rotate:30}},
+    yAxis:[{type:"value",name:"IR",axisLabel:{color:"#94a3b8"},splitLine:{lineStyle:{color:"#1e293b"}}},
+           {type:"value",name:"%",axisLabel:{color:"#94a3b8"},splitLine:{show:false}}],
+    series:[
+      {name:"IR",type:"bar",data:models.map(m=>m.ir),itemStyle:{color:"#3b82f6"}},
+      {name:"年化超额%",type:"bar",yAxisIndex:1,data:models.map(m=>+(m.ann*100).toFixed(2)),itemStyle:{color:"#34d399"}},
+      {name:"最大回撤%",type:"bar",yAxisIndex:1,data:models.map(m=>+(m.maxdd*100).toFixed(2)),itemStyle:{color:"#f87171"}}
+    ]
+  });
+}
+window.addEventListener("resize",()=>{if(CHART)CHART.resize();});
+async function load(){ try{ return await (await fetch("/api/alpha158_arena")).json(); }catch(e){ return null; } }
+async function poll(){
+  const d=await load(); if(!d) return;
+  const s=d.status||{};
+  if(d.pending||s.state==="running"){ $("st").textContent="⏳ "+(s.msg||"PC 回测中…"); render(d.models); return; }
+  clearInterval(POLL); POLL=null; $("run").disabled=false; $("runall").disabled=false;
+  if(s.state==="error"){ $("st").textContent="❌ "+(s.msg||"失败"); }
+  else $("st").textContent="✅ 完成";
+  render(d.models);
+}
+$("run").onclick=async()=>{
+  $("run").disabled=true; $("st").textContent="提交中…";
+  try{
+    const j=await (await fetch("/api/alpha158_arena/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:SEL})})).json();
+    if(!j.ok){ $("st").textContent="⚠️ "+j.message; $("run").disabled=false; return; }
+    $("st").textContent="⏳ "+j.message;
+    if(POLL)clearInterval(POLL); POLL=setInterval(poll,6000);
+  }catch(e){ $("st").textContent="提交失败: "+e.message; $("run").disabled=false; }
+};
+$("runall").onclick=async()=>{
+  $("runall").disabled=true; $("run").disabled=true; $("st").textContent="提交全跑…";
+  try{
+    const j=await (await fetch("/api/alpha158_arena/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"all"})})).json();
+    if(!j.ok){ $("st").textContent="⚠️ "+j.message; $("runall").disabled=false; $("run").disabled=false; return; }
+    $("st").textContent="⏳ "+j.message;
+    if(POLL)clearInterval(POLL); POLL=setInterval(poll,6000);
+  }catch(e){ $("st").textContent="提交失败"; $("runall").disabled=false; $("run").disabled=false; }
+};
+renderBtns();
+(async()=>{
+  const d=await load(); if(!d){ $("out").textContent="加载失败"; return; }
+  render(d.models);
+  const s=d.status||{};
+  if(d.pending||s.state==="running"){ $("run").disabled=true; $("st").textContent="⏳ "+(s.msg||"PC 处理中…"); if(POLL)clearInterval(POLL); POLL=setInterval(poll,6000); }
+})();
+</script>
+</body>
+</html>

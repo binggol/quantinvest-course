@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>个股研究报告 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1040px;margin:0 auto;padding:16px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  #code{background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;padding:7px 11px;border-radius:8px;font-size:14px;width:200px}
+  #st{color:#94a3b8;font-size:12px}
+  .hd{font-size:20px;font-weight:700}.crumb{color:#93c5fd;font-size:13px}
+  .ov{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 4px;color:#cbd5e1;font-size:13px}.ov b{color:#e2e8f0}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 15px;margin:12px 0}
+  h2.sec{font-size:15px;margin:4px 0 8px;color:#60a5fa}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:first-child,td:first-child{text-align:left}th{background:#111827;color:#94a3b8}
+  .selfrow td{background:#0c1f1a;color:#5eead4;font-weight:600}
+  .neg{color:#f87171}.pos{color:#34d399}.dim{color:#475569}
+  .q{display:flex;justify-content:space-between;align-items:center;margin:2px 0}
+  textarea{width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;border-radius:8px;padding:9px 11px;font-size:13px;line-height:1.7;resize:vertical;font-family:inherit}
+  .llm-tag{font-size:11px;color:#a78bfa;background:#1e1b3a;border:1px solid #4c1d95;padding:1px 7px;border-radius:9px}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin-top:8px}
+  .warn{color:#fbbf24}.muted{color:#64748b;font-size:12px}
+  button.save{background:#166534;border:none;color:#fff;padding:6px 16px;border-radius:8px;cursor:pointer;font-size:13px}
+  .hist{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+  .hist .lbl{color:#64748b;font-size:12px;align-self:center;margin-right:2px}
+  .hist .chip{background:#0b1220;border:1px solid #1e293b;color:#cbd5e1;padding:4px 10px;border-radius:14px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+  .hist .chip:hover{border-color:#3b82f6;color:#e2e8f0}
+  .hist .chip small{color:#64748b;margin-left:4px}
+  .acwrap{position:relative;display:inline-block}
+  .ac{position:absolute;top:36px;left:0;z-index:40;background:#0b1220;border:1px solid #1e293b;border-radius:8px;min-width:240px;max-height:320px;overflow:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .ac div{padding:6px 11px;cursor:pointer;font-size:13px;color:#cbd5e1}
+  .ac div:hover,.ac div.sel{background:#1e293b;color:#fff}
+  .ac small{color:#64748b;margin-left:6px}
+</style>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="/">K线浏览</a>
+    <a href="/watchlist">自选股</a>
+    <a href="/screen">选股</a>
+    <a href="/pattern">杯柄形态</a>
+    <a href="/rdagent">RD-Agent因子</a>
+    <a href="/alphagen">AlphaGen挖掘</a><a href="/rdquant">RD-Agent-Quant</a><a href="/backtest">回测对比</a>
+    <a href="/strategy">单票策略</a>
+    <a href="/advisor">策略顾问</a>
+    <a href="/advisor-pro">策略顾问Pro</a><a href="/portfolio">组合配置</a>
+    <a href="/research">研究台</a><a href="/runup">业绩抢跑</a><a href="/repo">回购腿</a><a href="/ipo">打新</a><a href="/chipmap">海力士映射</a><a href="/rsrs">RSRS择时</a><a href="/intraday">日内择时</a><a href="/index_inclusion">纳入(研究)</a><a href="/index_inclusion_pro">纳入Pro(实盘)</a>
+    <a href="/tradingagents">TradingAgents分析</a>
+  </nav>
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>仿卖方深度报告。输代码点「生成报告」→ PC按需拉数据(近三年及一期/单季/主营拆分/同行估值/解禁/股东)并用LLM(minimax)起草定性(投资建议/竞争格局/壁垒/行业空间/盈利预测/风险)。<b>定性部分可直接在框里改, 点保存</b>(PC重生成不会覆盖你的编辑)。数值客观、定性仅供参考须自行复核。</div></details>
+  <div class="wrap">
+    <div class="bar">
+      <span class="acwrap"><input id="code" placeholder="代码/简称/首字母 如 301071 · 新易盛 · xys" autocomplete="off"/><div id="ac" class="ac"></div></span>
+      <button id="gen">📝 生成报告</button>
+      <span id="st"></span>
+    </div>
+    <div id="hist" class="hist"></div>
+    <div id="out" class="muted" style="padding:14px">输入代码/简称/首字母生成。已生成过的会显示在上方,点击即看;首次生成约1-2分钟(PC拉数据+LLM起草)。</div>
+  </div>
+<script>
+function fnum(x,suf){return (x===null||x===undefined)?'<span class="dim">—</span>':((x>0?'<span class="pos">+':'<span class="neg">')+x+(suf||'')+'</span>');}
+function plain(x,suf){return (x===null||x===undefined)?'<span class="dim">—</span>':(x+(suf||''));}
+let POLL=null, CURc6="";
+function qbox(key,label,val){
+  return `<div class="card"><div class="q"><h2 class="sec">${label} <span class="llm-tag">LLM起草·可改</span></h2></div>`+
+    `<textarea id="q-${key}" rows="${Math.max(3,Math.ceil((val||'').length/46))}">${(val||'').replace(/</g,'&lt;')}</textarea></div>`;
+}
+function render(d){
+  const o=d.overview||{};
+  let h=`<div class="hd">${d.name} <span class="muted">${d.code}</span></div>`;
+  h+=`<div class="crumb">${o.l1||''} ▸ ${o.l2||''} ▸ <b>${o.l3||''}</b>(主营)</div>`;
+  h+=`<div class="ov"><div>总市值 <b>${plain(o.mv,'亿')}</b></div><div>流通 <b>${plain(o.circ_mv,'亿')}</b></div><div>PE-TTM <b>${plain(o.pe)}</b></div><div>PB <b>${plain(o.pb)}</b></div><div>股息率 <b>${plain(o.dv,'%')}</b></div></div>`;
+  h+=`<div class="muted">数据更新 ${d.updated||''} · 行情日 ${d.as_of_px||''} ${d.edited?(' · 你的编辑 '+d.edited):''}</div>`;
+  // 投资建议
+  const L=d.llm||{};
+  h+=qbox('conclusion','『投资建议概述』结论',L.conclusion);
+  // 近三年及一期
+  h+='<div class="card"><h2 class="sec">近三年及一期财务(营收/扣非/净利 单位亿元)</h2><table><thead><tr><th>报告期</th><th>营收</th><th>营收增速</th><th>扣非净利</th><th>扣非增速</th><th>归母净利</th><th>毛利率</th><th>净利率</th><th>ROE</th><th>资产负债率</th></tr></thead><tbody>';
+  h+=(d.fin_annual||[]).map(r=>`<tr><td>${r.period}</td><td>${plain(r.revenue)}</td><td>${fnum(r.rev_yoy,'%')}</td><td>${plain(r.dedt)}</td><td>${fnum(r.dedt_yoy,'%')}</td><td>${plain(r.n_income)}</td><td>${plain(r.gm,'%')}</td><td>${plain(r.npm,'%')}</td><td>${plain(r.roe,'%')}</td><td>${plain(r.debt,'%')}</td></tr>`).join('');
+  h+='</tbody></table></div>';
+  // 单季
+  if((d.fin_q||[]).length){
+    h+='<div class="card"><h2 class="sec">单季度摘要(金额单位亿元, 增速为单季同比)</h2><table><thead><tr><th>季度</th>'+d.fin_q.map(r=>`<th>${r.period}</th>`).join('')+'</tr></thead><tbody>';
+    h+='<tr><td>单季营收</td>'+d.fin_q.map(r=>`<td>${plain(r.rev_q)}</td>`).join('')+'</tr>';
+    h+='<tr><td>营收增速(同比)</td>'+d.fin_q.map(r=>`<td>${fnum(r.rev_q_yoy,'%')}</td>`).join('')+'</tr>';
+    h+='<tr><td>单季毛利率</td>'+d.fin_q.map(r=>`<td>${plain(r.gm_q,'%')}</td>`).join('')+'</tr>';
+    h+='<tr><td>单季归母净利</td>'+d.fin_q.map(r=>`<td>${plain(r.ni_q)}</td>`).join('')+'</tr>';
+    h+='<tr><td>单季扣非净利</td>'+d.fin_q.map(r=>`<td>${plain(r.dedt_q)}</td>`).join('')+'</tr>';
+    h+='<tr><td>扣非增速(同比)</td>'+d.fin_q.map(r=>`<td>${fnum(r.dedt_q_yoy,'%')}</td>`).join('')+'</tr>';
+    h+='</tbody></table></div>';
+  }
+  // 主营拆分
+  if((d.mainbz||[]).length){
+    h+=`<div class="card"><h2 class="sec">主营业务拆分(${d.mainbz[0].period}年报)</h2><table><thead><tr><th>业务</th><th>营收(亿)</th><th>占比</th><th>毛利率</th></tr></thead><tbody>`;
+    h+=d.mainbz.map(r=>`<tr><td>${r.item}</td><td>${plain(r.sales)}</td><td>${plain(r.pct,'%')}</td><td>${plain(r.gm,'%')}</td></tr>`).join('');
+    h+='</tbody></table></div>';
+  }
+  // 同行估值
+  if((d.peers_val||[]).length){
+    const fy=d.fc_years||[];
+    const fh=fy.map((y,i)=>`<th>${i===0?(y+'PE'):(y+'EPE')}</th>`).join('');
+    const gmhdr=((d.peers_val[0]||{}).gm_rows||[]).map(r=>(r.p||'').replace('年报','')).join('/');
+    const gser=rows=>(rows||[]).map((r,i)=>{const v=(r.gm==null)?'—':r.gm;return i===rows.length-1?`<b>${v}</b>`:`<span class="dim">${v}</span>`;}).join('<span class="dim">/</span>');
+    h+=`<div class="card"><h2 class="sec">同主营同行估值比较 <span class="muted">(${d.peer_basis||'申万三级'};前瞻PE=市值÷券商一致预期净利中位)</span></h2><div style="overflow-x:auto"><table><thead><tr><th>代码</th><th>名称</th><th>市值(亿)</th><th>PE-TTM</th>${fh}<th>PB(上年末)</th><th>PB(最新)</th><th>ROE(上年)</th><th>ROE(TTM)</th><th>毛利率(${gmhdr})</th></tr></thead><tbody>`;
+    h+=d.peers_val.map(p=>{const pf=p.pe_fwd||{};return `<tr class="${p.is_self?'selfrow':''}"><td><a onclick="go('${p.code}')" style="color:#60a5fa;cursor:pointer">${p.code}</a></td><td>${p.name}${p.is_self?'(本股)':''}</td><td>${plain(p.mv)}</td><td>${plain(p.pe)}</td>`+fy.map(y=>`<td>${plain(pf[y])}</td>`).join('')+`<td>${plain(p.pb_ly)}</td><td>${plain(p.pb_now)}</td><td>${plain(p.roe_ly,'%')}</td><td>${plain(p.roe_ttm,'%')}</td><td>${gser(p.gm_rows)}</td></tr>`;}).join('');
+    h+='</tbody></table></div><div class="muted" style="margin-top:4px">PB两列=上一年末/最新;ROE=上一整年/最近四季滚动(TTM净利÷净资产);毛利率=近三年报+最新一期</div></div>';
+    // 券商盈利预测明细
+    if((d.broker_fc||[]).length){
+      h+=`<div class="card"><h2 class="sec">券商盈利预测明细 <span class="muted">(归母净利润预测,亿元;近550天研报)</span></h2><div style="overflow-x:auto"><table><thead><tr><th>发布日</th><th>券商</th><th>研报标题</th><th>评级</th>${fy.map(y=>`<th>${y}净利</th>`).join('')}</tr></thead><tbody>`;
+      h+=d.broker_fc.map(b=>`<tr><td>${b.date}</td><td>${b.org||''}</td><td style="text-align:left;max-width:320px">${b.title||''}</td><td>${b.rating||''}</td>`+fy.map(y=>`<td>${plain((b.np||{})[y])}</td>`).join('')+`</tr>`).join('');
+      h+='</tbody></table></div><div class="muted" style="margin-top:6px">注:券商普遍预测归母净利润(非扣非);同一券商同日多篇取首篇。</div></div>';
+    } else {
+      h+='<div class="note muted">本股暂无券商盈利预测覆盖(report_rc无数据),故同行前瞻PE中本股列为空。</div>';
+    }
+  }
+  // LLM 定性
+  h+=qbox('landscape','『竞争格局』',L.landscape);
+  h+=qbox('moat','『竞争壁垒』',L.moat);
+  h+=qbox('space','『行业空间』',L.space);
+  h+=qbox('chain','『产业链卡位深度分析』 技术建设→架构变化→拆BOM/工艺链→窄上游(产能/资质/材料/设备稀缺)→战略控制力vs估值→验证信号',L.chain);
+  h+=qbox('forecast','『盈利预测·逻辑与假设』',L.forecast);
+  h+=qbox('risk','『风险提示』',L.risk);
+  // 解禁 + 股东
+  if((d.unlocks||[]).length){
+    h+='<div class="card"><h2 class="sec">未来解禁</h2><table><thead><tr><th>解禁日</th><th>占比</th><th>股东</th></tr></thead><tbody>';
+    h+=d.unlocks.map(u=>`<tr><td>${u.date}</td><td>${plain(u.ratio,'%')}</td><td>${u.holder||''}</td></tr>`).join('')+'</tbody></table></div>';
+  }
+  if((d.holders||[]).length){
+    h+='<div class="card"><h2 class="sec">前十大股东</h2><table><thead><tr><th>股东</th><th>持股比例</th></tr></thead><tbody>';
+    h+=d.holders.map(x=>`<tr><td>${x.name}</td><td>${plain(x.ratio,'%')}</td></tr>`).join('')+'</tbody></table></div>';
+  }
+  if(d.llm&&d.llm._error) h+=`<div class="note"><span class="warn">⚠️ </span>LLM起草未成功(${d.llm._error}),定性框为空,可手动填写后保存。</div>`;
+  h+='<div style="margin:14px 0"><button class="save" onclick="save()">💾 保存定性编辑</button> <span id="sv" class="muted"></span></div>';
+  h+='<div class="note">⚠️ 数值来自tushare客观数据;定性内容为LLM基于数据起草的初稿,<b>务必自行复核</b>,投资决策自负。</div>';
+  document.getElementById("out").innerHTML=h;
+}
+async function load(code){
+  const c=(code||document.getElementById("code").value||"").trim(); if(!c) return;
+  let d; try{ d=await (await fetch("/api/report?code="+encodeURIComponent(c))).json(); }catch(e){ return; }
+  CURc6=d.c6||"";
+  if(d.found){ if(POLL){clearInterval(POLL);POLL=null;} document.getElementById("st").textContent="更新 "+(d.updated||""); render(d); }
+  else if(d.pending){ document.getElementById("out").innerHTML='<div class="muted" style="padding:14px">'+(d.status||"⏳ 生成中…")+' 自动刷新…</div>'; }
+  else { document.getElementById("out").innerHTML='<div class="muted" style="padding:14px">'+(d.message||"无数据")+'</div>'; }
+}
+function go(code){ const el=document.getElementById("code"); el.value=code; hideAc(); load(code); window.scrollTo(0,0); }
+// 首字母/简称 -> 代码 (复用 /api/search 的 pinyin_initials)
+function isCode(q){ return /^(sh|sz|bj)?[0-9]{6}$/i.test((q||"").trim()); }
+async function resolveCode(q){
+  q=(q||"").trim(); if(!q||isCode(q)) return q;
+  try{ const r=await (await fetch("/api/search?q="+encodeURIComponent(q))).json();
+       if(r.hits&&r.hits.length) return r.hits[0].code; }catch(e){}
+  return q;
+}
+async function submitView(){
+  let c=(document.getElementById("code").value||"").trim(); if(!c) return;
+  c=await resolveCode(c); hideAc(); load(c);
+}
+document.getElementById("gen").onclick=async()=>{
+  let c=(document.getElementById("code").value||"").trim(); if(!c){return;}
+  c=await resolveCode(c); document.getElementById("code").value=c; hideAc();
+  document.getElementById("st").textContent="已通知PC生成(约1-2分钟)…";
+  try{ const r=await (await fetch("/api/report/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:c})})).json();
+       document.getElementById("st").textContent=r.message||""; }catch(e){}
+  if(POLL) clearInterval(POLL); POLL=setInterval(()=>{load(c);loadHist();},8000); setTimeout(()=>load(c),3000);
+};
+async function save(){
+  if(!CURc6) return;
+  const keys=['conclusion','landscape','moat','space','chain','forecast','risk']; const llm={};
+  keys.forEach(k=>{const el=document.getElementById('q-'+k); if(el) llm[k]=el.value;});
+  document.getElementById("sv").textContent="保存中…";
+  try{ const r=await (await fetch("/api/report/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:CURc6,llm})})).json();
+       document.getElementById("sv").textContent=r.message||""; }catch(e){ document.getElementById("sv").textContent="保存失败"; }
+}
+// ---------- 历史研报快捷条 (按时间倒序, 点简称即看) ----------
+async function loadHist(){
+  try{
+    const r=await (await fetch("/api/report/list")).json();
+    const box=document.getElementById("hist"); const items=r.items||[];
+    if(!items.length){ box.innerHTML=""; return; }
+    box.innerHTML='<span class="lbl">历史研报:</span>'+items.map(it=>{
+      const nm=(it.name||it.c6).replace(/</g,'&lt;');
+      return `<span class="chip" onclick="go('${it.code||it.c6}')" title="${it.c6} · 更新 ${it.updated||''}">${nm}<small>${it.c6}</small></span>`;
+    }).join('');
+  }catch(e){}
+}
+// ---------- 输入框自动补全: 代码 / 简称 / 拼音首字母 ----------
+let AC=[], ACi=-1, ACt=null;
+function hideAc(){ const a=document.getElementById("ac"); if(a){a.style.display="none";} AC=[]; ACi=-1; }
+function renderAc(){
+  const a=document.getElementById("ac");
+  if(!AC.length){ hideAc(); return; }
+  a.innerHTML=AC.map((h,i)=>`<div class="${i===ACi?'sel':''}" data-i="${i}">${(h.name||'').replace(/</g,'&lt;')} <small>${h.code} · ${h.industry||''}</small></div>`).join('');
+  a.style.display="block";
+  a.querySelectorAll("div").forEach(d=>d.onclick=()=>go(AC[+d.dataset.i].code));
+}
+async function doAc(q){
+  q=(q||"").trim();
+  if(!q||isCode(q)){ hideAc(); return; }
+  try{ const r=await (await fetch("/api/search?q="+encodeURIComponent(q))).json();
+       AC=(r.hits||[]).slice(0,12); ACi=AC.length?0:-1; renderAc(); }catch(e){ hideAc(); }
+}
+const codeEl=document.getElementById("code");
+codeEl.addEventListener("input",()=>{ clearTimeout(ACt); ACt=setTimeout(()=>doAc(codeEl.value),180); });
+codeEl.addEventListener("keydown",e=>{
+  const open=document.getElementById("ac").style.display==="block";
+  if(e.key==="ArrowDown"&&open){ e.preventDefault(); ACi=Math.min(ACi+1,AC.length-1); renderAc(); }
+  else if(e.key==="ArrowUp"&&open){ e.preventDefault(); ACi=Math.max(ACi-1,0); renderAc(); }
+  else if(e.key==="Enter"){ if(open&&ACi>=0&&AC[ACi]){ e.preventDefault(); go(AC[ACi].code); } else { submitView(); } }
+  else if(e.key==="Escape"){ hideAc(); }
+});
+document.addEventListener("click",e=>{ if(!e.target.closest(".acwrap")) hideAc(); });
+loadHist();
+</script>
+</body>
+</html>

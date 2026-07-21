@@ -1,0 +1,240 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>批次股票池对比 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+  select{background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;padding:5px 9px;border-radius:7px;font-size:13px}
+  #run,#runall,#runallu{border:none;color:#fff;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+  #run{background:#166534}#runall{background:#1e3a8a}#runallu{background:#7c3aed}
+  #st{color:#94a3b8;font-size:12px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+  th,td{border:1px solid #1e293b;padding:6px 10px;text-align:center}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#111827;color:#94a3b8}
+  .dim{color:#475569}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .warn{background:#1f1604;border:1px solid #92400e;color:#fcd34d;font-size:12px;padding:8px 12px;border-radius:6px;margin:8px 0;line-height:1.5}
+  .best{outline:2px solid #34d399}
+  .tablewrap{overflow:auto;max-height:70vh}
+  .consensus{background:#166534;color:#bbf7d0;font-weight:600}.hit{background:#14532d;color:#86efac}
+  .cnt{color:#fbbf24;font-weight:700}.scode{text-align:left;color:#7dd3fc;font-family:monospace}.sname{text-align:left;color:#cbd5e1}
+  .a-both{color:#86efac;font-weight:600}.a-only{color:#f59e0b;font-weight:600}
+  .blbtn{background:#166534;color:#fff;border:none;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>选一个<b>量价挖矿批次</b>的因子(非全Alpha158), 把各模型在<b>沪深300/中证500/中证1000</b>三个池上分别回测。<b>行=模型, 列=股票池, 格=IR(信息比率)</b>。<b>横读一行</b>=该模型在三池的对比;<b>纵读一列</b>=该池里哪个模型最好(每列最优描绿框)。和 <a href="/universe-arena">Alpha158股票池对比</a> 一样的口径, 只是因子集换成你选的批次——用来回答"这批精选因子, 哪个模型/哪个池最能打"。<b>下方可补跑某池某模型, 或一键全跑(批次×全模型×全池=30个回测, 含深度模型, 很慢)。仅供研究。</b></div></details>
+  <div class="wrap">
+    <div class="warn">⚠️ 小盘(csi1000)IR 通常更高, 但实盘买不进/冲击成本大。看"哪个组合好"要结合可交易性, 别只看 IR。深度模型(TimesNet等)回测慢, 多组合可能要小时级。</div>
+    <div class="bar">
+      批次 <select id="b"><option value="">加载中</option></select>
+      池 <select id="u"><option value="csi300">沪深300</option><option value="csi500">中证500</option><option value="csi1000">中证1000</option><option value="all">全市场</option><option value="allunivs">全部池(300/500/1000)</option></select>
+      模型 <select id="m"><option>xgb</option><option>catboost</option><option>lgb</option><option>timesnet</option><option>patchtst</option><option>itransformer</option><option>dlinear</option><option>ols</option><option>ridge</option><option>lasso</option></select>
+      <button id="run">▶ 补跑</button>
+      <button id="runall">🚀 该池全模型</button>
+      <button id="runallu">🚀🚀 全模型×全池</button>
+      <button id="histbtn" style="background:#1e3a5f">📜 历史留痕</button>
+      <span id="st"></span>
+    </div>
+    <div id="out" class="dim" style="padding:10px">加载中…</div>
+    <div id="flatwrap"></div>
+
+    <div style="font-size:14px;color:#fcd34d;margin:22px 0 6px;font-weight:600">🗂️ 跨批次总览 · 所有跑过的批次一屏对比(不用切换)</div>
+    <div class="dim" style="font-size:11.5px;margin-bottom:4px">行=批次×股票池, 列=各模型 IR。<b>同一行最高IR标绿</b>(该批次该池的最优模型)。<b>⚠️ 不同测试期/池不可直接横比绝对值</b>, 重点看 csi300 同池行之间哪个批次的最优IR更高。空格=该(批次×池×模型)还没跑。</div>
+    <div id="allwrap" class="dim" style="padding:8px">加载中…</div>
+
+    <div style="font-size:14px;color:#86efac;margin:22px 0 6px;font-weight:600">📋 次日买入清单 · 同批次各模型对比(共识标绿)</div>
+    <div class="bar">
+      批次 <select id="blb"><option value="">加载中</option></select>
+      清单股票池 <select id="blu"><option value="csi300">沪深300</option><option value="csi500">中证500</option><option value="csi1000">中证1000</option></select>
+      Top<input id="bltop" type="number" min="5" max="80" value="30" style="width:48px;background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:4px"/>
+      <button id="blrun" class="blbtn">🚀 生成清单(该池全模型)</button>
+      <span id="blst" style="color:#94a3b8;font-size:12px"></span>
+    </div>
+    <div class="dim" style="font-size:11.5px;margin-bottom:4px">用该批次因子在选定池上全模型出次日买入清单, 各模型一列, <b>多模型同时选中的票=绿色</b>(共识更稳)。与上方IR矩阵互补: IR看历史回测强弱, 这里看次日实际选哪些票。</div>
+    <div id="blout" class="dim" style="padding:8px">选批次+池, 点「生成清单」。</div>
+
+    <div id="histwrap" style="display:none;margin-top:14px"></div>
+  </div>
+<script>
+const $=id=>document.getElementById(id);
+const UNIVS=[["csi300","沪深300"],["csi500","中证500"],["csi1000","中证1000"],["all","全市场"]];
+const UNAME=Object.fromEntries(UNIVS);
+const MODELS=["lgb","xgb","catboost","ols","ridge","lasso","dlinear","patchtst","timesnet","itransformer"];
+let POLL=null;
+let ARENA_E=[]; let SORT_KEY="ir", SORT_DESC=true;
+function setSort(k){ if(SORT_KEY===k){ SORT_DESC=!SORT_DESC; } else { SORT_KEY=k; SORT_DESC=true; } flatTable(); }
+function flatTable(){
+  if(!ARENA_E.length){ $("flatwrap").innerHTML='<div class="dim" style="margin:14px 0 4px">📊 全部结果(点表头排序: rankIC/超额/IR/回撤)</div><div class="note" style="margin-top:0">还没有结果。每跑完一个(池×模型),这里就新增一行,可点表头按 rankIC/超额/IR/回撤 排序。</div>'; return; }
+  const COLS=[["model","模型",r=>r.model],["universe","股票池",r=>UNAME[r.universe]||r.universe],
+    ["rank_ic","rankIC",r=>r.rank_ic==null?"-":r.rank_ic.toFixed(4)],
+    ["excess","年化超额",r=>r.excess==null?"-":(r.excess*100>=0?"+":"")+(r.excess*100).toFixed(1)+"%"],
+    ["ann","年化收益",r=>r.ann==null?"-":(r.ann*100>=0?"+":"")+(r.ann*100).toFixed(1)+"%"],
+    ["ir","IR",r=>r.ir==null?"-":r.ir.toFixed(2)],
+    ["maxdd","回撤",r=>r.maxdd==null?"-":(r.maxdd*100).toFixed(1)+"%"]];
+  const sorted=[...ARENA_E].sort((a,b)=>{ const av=a[SORT_KEY], bv=b[SORT_KEY];
+    if(av==null) return 1; if(bv==null) return -1;
+    if(typeof av==="string") return SORT_DESC? bv.localeCompare(av):av.localeCompare(bv);
+    return SORT_DESC? bv-av : av-bv; });
+  const arrow=k=> SORT_KEY===k?(SORT_DESC?" ▼":" ▲"):"";
+  let h='<div class="dim" style="margin:14px 0 4px">📊 全部结果(点表头排序: rankIC/超额/IR/回撤)</div>';
+  h+='<table><thead><tr>'+COLS.map(c=>`<th style="cursor:pointer;user-select:none" onclick="setSort('${c[0]}')">${c[1]}${arrow(c[0])}</th>`).join('')+'</tr></thead><tbody>';
+  h+=sorted.map(r=>'<tr>'+COLS.map(c=>{ const v=c[2](r);
+    const cls=(c[0]==="rank_ic"||c[0]==="ann"||c[0]==="excess"||c[0]==="ir")?(r[c[0]]>0?'style="color:#86efac"':(r[c[0]]<0?'style="color:#fca5a5"':'')):(c[0]==="maxdd"?'style="color:#fca5a5"':'');
+    return `<td ${cls}>${v}</td>`;}).join('')+'</tr>').join('');
+  h+='</tbody></table>';
+  $("flatwrap").innerHTML=h;
+}
+function irColor(ir){ if(ir==null) return ''; const v=Math.max(-0.5,Math.min(1.6,ir)); const g=Math.round(40+150*Math.max(0,v)/1.6); return `background:rgba(${v<0?120:20},${v<0?40:g+40},${v<0?40:60},0.45)`; }
+function liveMsg(d){
+  const st=d.status||{}, tp=d.train_progress||{};
+  let s=st.msg||'回测中…';
+  // 细粒度: 当前训练阶段/Epoch (train_progress 实时心跳)
+  if(tp.phase){
+    const ep=(tp.epoch!=null)?(' Epoch '+tp.epoch+(tp.n_epochs?('/'+tp.n_epochs):'')):'';
+    s+=` 〔${tp.model||''} ${tp.phase}${ep}〕`;
+  }
+  return s;
+}
+function render(d){
+  const E=d.entries||[]; ARENA_E=E;
+  const st=d.status||{}; const running=d.pending||st.state==="running";
+  const lm=liveMsg(d);
+  const byKey={}; E.forEach(e=>byKey[e.universe+"|"+e.model]=e);
+  // 始终显示完整矩阵骨架(10模型 × 4池), 没跑的格=·(可补跑) —— 不再隐藏结构
+  const bestByU={}; UNIVS.forEach(([u])=>{ let b=null; MODELS.forEach(m=>{const e=byKey[u+"|"+m]; if(e&&(b===null||e.ir>b.ir))b={m,ir:e.ir};}); bestByU[u]=b; });
+  const nDone=E.length, nTot=MODELS.length*UNIVS.length;
+  let h=`<div class="dim" style="margin-bottom:4px">批次 <b style="color:#c4b5fd">${d.batch||'(选批次)'}</b> · 行=模型, 列=股票池, 格=IR · 已跑 ${nDone}/${nTot} ${running?('· ⏳ '+lm+' <span style="color:#86efac">(出一个显示一个)</span>'):''}</div>`;
+  h+='<table><thead><tr><th>模型 \\ 池</th>'+UNIVS.map(([u,n])=>`<th>${n}<br><span class="dim" style="font-size:10px">${u}</span></th>`).join('')+'</tr></thead><tbody>';
+  h+=MODELS.map(m=>{
+    return `<tr><td>${m}</td>`+UNIVS.map(([u])=>{const e=byKey[u+"|"+m];
+      if(!e) return `<td class="dim" title="还没跑, 选「池=${UNAME[u]} 模型=${m}」点补跑">·</td>`;
+      const best=bestByU[u]&&bestByU[u].m===m; return `<td class="${best?'best':''}" style="${irColor(e.ir)}" title="年化超额(vs基准)${e.excess==null?'-':(e.excess*100).toFixed(1)+'%'} · 年化收益(绝对)${(e.ann*100).toFixed(1)}% · 回撤${(e.maxdd*100).toFixed(1)}% · rankIC${(e.rank_ic||0).toFixed(3)}">${e.ir.toFixed(2)}</td>`;}).join('')+'</tr>';
+  }).join('');
+  h+='</tbody></table>';
+  const bestTxt=UNIVS.filter(([u])=>bestByU[u]).map(([u,n])=>`${n}最优 <b>${bestByU[u].m}</b>(IR ${bestByU[u].ir.toFixed(2)})`).join(' · ');
+  h+='<div class="note">'+(nDone?('每列绿框=该池最优模型。'+bestTxt+'<br>'):'矩阵还是空的——选「池+模型」点「补跑」, 或「🚀该池全模型」。结果出一个显示一个。<br>')
+    +'悬停格子看 超额/回撤/rankIC。<b>·=该组合还没跑</b>(选对应池+模型补跑)。⚠️ 全市场(all)回测慢且IR含微盘水分, 谨慎。</div>';
+  $("out").innerHTML=h;
+  flatTable();
+  if(running){ if(!POLL)POLL=setInterval(load,5000); } else if(POLL){ clearInterval(POLL); POLL=null; }
+}
+// 跨批次总览: 一屏看所有跑过的批次, 行=批次×池, 列=各模型IR, 行内最优标绿
+function renderAll(d){
+  const A=d.all_entries||[];
+  if(!A.length){ $("allwrap").innerHTML='<div class="note">还没有任何批次跑过擂台。在上方选批次→「🚀该池全模型」即可, 跑完会出现在这里。</div>'; return; }
+  const byKey={}; A.forEach(e=>byKey[e.batch+"|"+e.universe+"|"+e.model]=e);
+  // 行 = 实际有数据的 批次×池 组合, 按批次名+池排序
+  const rowsKey=[...new Set(A.map(e=>e.batch+"|"+e.universe))].sort();
+  let h='<table><thead><tr><th>批次</th><th>股票池</th>'+MODELS.map(m=>`<th>${m}</th>`).join('')+'<th>该行最优</th></tr></thead><tbody>';
+  h+=rowsKey.map(rk=>{ const [b,u]=rk.split("|");
+    // 行内最优模型(按IR)
+    let best=null; MODELS.forEach(m=>{const e=byKey[b+"|"+u+"|"+m]; if(e&&e.ir!=null&&(best===null||e.ir>best.ir))best={m,ir:e.ir};});
+    return `<tr><td style="color:#c4b5fd">${b}</td><td>${UNAME[u]||u}</td>`
+      +MODELS.map(m=>{const e=byKey[b+"|"+u+"|"+m];
+        if(!e||e.ir==null) return '<td class="dim">·</td>';
+        const isb=best&&best.m===m;
+        return `<td class="${isb?'best':''}" style="${irColor(e.ir)}" title="${b} · ${UNAME[u]||u} · ${m} · 年化超额${e.excess==null?'-':(e.excess*100).toFixed(1)+'%'} · 回撤${(e.maxdd*100).toFixed(1)}% · rankIC${(e.rank_ic||0).toFixed(3)}">${e.ir.toFixed(2)}</td>`;}).join('')
+      +`<td>${best?('<b style="color:#86efac">'+best.m+'</b> '+best.ir.toFixed(2)):'-'}</td></tr>`;
+  }).join('');
+  h+='</tbody></table>';
+  // csi300 同池横比: 哪个批次最优IR最高
+  const c3=rowsKey.filter(rk=>rk.endsWith("|csi300")).map(rk=>{const b=rk.split("|")[0];
+    let best=null; MODELS.forEach(m=>{const e=byKey[b+"|csi300|"+m]; if(e&&e.ir!=null&&(best===null||e.ir>best.ir))best={m,ir:e.ir};});
+    return best?{b,m:best.m,ir:best.ir}:null;}).filter(Boolean).sort((a,b)=>b.ir-a.ir);
+  if(c3.length>1){ h+='<div class="note">📌 <b>csi300同池公平横比</b>(同池才可比): '
+    +c3.map((x,i)=>`${i===0?'🥇':(i===1?'🥈':'·')} <b>${x.b}</b>(${x.m} IR ${x.ir.toFixed(2)})`).join(' · ')
+    +' → csi300上最优批次=<b style="color:#86efac">'+c3[0].b+'</b>。其他池数据不全, 想全面对比就把各批次都「🚀该池全模型」跑齐。</div>'; }
+  else { h+='<div class="note">只有1个批次跑了csi300, 还无法横比。把其他批次也用「🚀该池全模型」跑一下, 这里就能一屏对比哪个批次最强。</div>'; }
+  $("allwrap").innerHTML=h;
+}
+async function load(){ try{ const d=await (await fetch("/api/batch_arena?batch="+encodeURIComponent($("b").value))).json();
+  fillBatches(d); render(d); renderAll(d); return d; }catch(e){ return null; } }
+const blab=x=> x==="default" ? "⭐default(SOTA·15因子)" : x;  // SOTA友好显示
+function fillBatches(d){ const labels=d.batches||[];
+  if($("b").options.length<2 || $("b").options[0].value===""){ $("b").innerHTML=labels.length?labels.map(x=>`<option value="${x}">${blab(x)}</option>`).join(''):'<option value="">(暂无量价批次)</option>';
+    if(d.batch && labels.includes(d.batch)) $("b").value=d.batch; }
+  // 清单区批次下拉(独立, 可选与IR矩阵不同的批次)
+  if($("blb").options.length<2 || $("blb").options[0].value===""){ $("blb").innerHTML=labels.length?labels.map(x=>`<option value="${x}">${blab(x)}</option>`).join(''):'<option value="">(暂无)</option>';
+    if(d.batch && labels.includes(d.batch)) $("blb").value=d.batch; }
+}
+async function trigger(universe,model){
+  const batch=$("b").value; if(!batch){ alert("请选批次"); return; }
+  $("run").disabled=true;$("runall").disabled=true;$("runallu").disabled=true;$("st").textContent="提交…";
+  try{ const j=await (await fetch("/api/batch_arena/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch,universe,model})})).json();
+    $("st").textContent=(j.ok?"⏳ ":"⚠️ ")+j.message;
+    if(j.ok){ if(POLL)clearInterval(POLL); POLL=setInterval(load,8000); load(); }
+  }catch(e){ $("st").textContent="提交失败"; }
+  setTimeout(()=>{$("run").disabled=false;$("runall").disabled=false;$("runallu").disabled=false;},3000);
+}
+$("run").onclick=()=>trigger($("u").value,$("m").value);
+$("runall").onclick=()=>trigger($("u").value,"all");
+$("runallu").onclick=()=>{ if(confirm("全模型×全池 = 批次×10模型×3池 = 30个回测, 含深度模型, 可能数小时。确定?")) trigger("allunivs","all"); };
+$("b").addEventListener("change", load);
+// ===== 次日买入清单 · 同批次各模型共识矩阵(复用 /api/batch_predict, 独立选批次) =====
+let BLPOLL=null;
+async function loadBL(){
+  const b=$("blb").value; if(!b){ $("blout").innerHTML='<div class="dim" style="padding:8px">先选批次。</div>'; return; }
+  try{ const d=await (await fetch("/api/batch_predict?batch="+encodeURIComponent(b)+"&u="+$("blu").value)).json(); renderBL(d); }catch(e){}
+}
+function renderBL(d){
+  const M=d.models||[]; const status=d.status||{}; const pending=d.pending||status.state==="running";
+  const tp=d.train_progress||{};
+  let live=status.msg||"PC处理中…"; if(pending&&tp.phase){const ep=(tp.epoch!=null)?(" Epoch "+tp.epoch+(tp.n_epochs?("/"+tp.n_epochs):"")):""; live+=` 〔${tp.model||''} ${tp.phase}${ep}〕`;}
+  $("blst").textContent = pending ? ("⏳ "+live) : (M.length? (M.length+" 模型 · "+(M[0].as_of||"")) : "");
+  $("blrun").disabled = pending;
+  if(pending && !BLPOLL) BLPOLL=setInterval(loadBL,6000);
+  if(!pending && BLPOLL){ clearInterval(BLPOLL); BLPOLL=null; }
+  if(!M.length){ $("blout").innerHTML='<div class="dim" style="padding:8px">该批次在 '+($("blu").value)+' 上还没有清单。点「生成清单」。'+(pending?' (正在跑…)':'')+'</div>'; return; }
+  const topn=Math.max(5,Math.min(80,parseInt($("bltop").value)||30));
+  const perM=M.map(m=>({model:m.model, set:new Set((m.hits||[]).slice(0,topn).map(h=>h.code)),
+    rank:Object.fromEntries((m.hits||[]).slice(0,topn).map(h=>[h.code,h.rank])),
+    name:Object.fromEntries((m.hits||[]).map(h=>[h.code,h.name||""]))}));
+  const cnt={}, nm={};
+  perM.forEach(pm=>pm.set.forEach(c=>{cnt[c]=(cnt[c]||0)+1; if(pm.name[c])nm[c]=pm.name[c];}));
+  const stocks=Object.keys(cnt).sort((a,b)=> cnt[b]-cnt[a] || a.localeCompare(b));
+  let h='<div class="tablewrap"><table><thead><tr><th>#选中</th><th>代码</th><th>简称</th>'+perM.map(pm=>`<th>${pm.model}</th>`).join('')+'</tr></thead><tbody>';
+  h+=stocks.map(c=>{ const k=cnt[c];
+    return `<tr><td class="cnt">${k}</td><td class="scode">${c}</td><td class="sname">${nm[c]||''}</td>`
+      +perM.map(pm=>{ if(!pm.set.has(c)) return '<td>·</td>'; const cls=k>=3?'consensus':'hit'; return `<td class="${cls}">${pm.rank[c]}</td>`;}).join('')+'</tr>';
+  }).join('');
+  h+='</tbody></table></div><div class="note">格=该票在该模型清单里的排名。<b>绿=多模型共识</b>(深绿≥3模型, 越多越稳),「#选中」=被几个模型同时选中。共识票通常更可靠。仅研究, 下单自查停牌/涨停。</div>';
+  $("blout").innerHTML=h;
+}
+$("blb").addEventListener("change", loadBL);
+$("blu").addEventListener("change", loadBL);
+$("bltop").addEventListener("change", loadBL);
+$("blrun").addEventListener("click", async ()=>{
+  const b=$("blb").value, u=$("blu").value; if(!b){ alert("先选批次"); return; }
+  if(!confirm(`用批次 ${b} 在 ${u} 上全模型(10个)出次日清单?\n含深度模型, 约1小时, 需PC在跑。`)) return;
+  $("blrun").disabled=true; $("blst").textContent="提交中…";
+  try{ const j=await (await fetch("/api/batch_predict/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch:b,universe:u})})).json();
+    $("blst").textContent=j.message||""; setTimeout(loadBL,1500);
+  }catch(e){ $("blst").textContent="失败"; $("blrun").disabled=false; }
+});
+// 历史留痕: 每次回测一条(带测试期+时间), 看同一(批次×池×模型)跨时点的IR变化, 不被重跑覆盖
+async function loadHist(){
+  const d=await (await fetch("/api/batch_arena/history?batch="+encodeURIComponent($("b").value))).json();
+  const H=d.history||[];
+  if(!H.length){ $("histwrap").innerHTML='<div class="note">该批次还没有历史留痕。每次回测计算都会按 时间+测试期 存一条,这里可对比同一(池×模型)在不同时点/时段的 IR 变化(重跑不覆盖)。</div>'; return; }
+  let h='<div class="dim" style="margin-bottom:4px">📜 历史留痕 · 批次 <b style="color:#c4b5fd">'+($("b").value)+'</b> · 共'+H.length+'条(每次回测存一条, 不去重)</div>';
+  h+='<table><thead><tr><th>计算时间</th><th>股票池</th><th>模型</th><th>测试期</th><th>IR</th><th>超额</th><th>回撤</th><th>rankIC</th></tr></thead><tbody>';
+  h+=H.map(r=>`<tr><td class="dim">${r.computed_at||''}</td><td>${UNAME[r.universe]||r.universe}</td><td>${r.model}</td><td class="dim">${r.test_start||'?'}~${r.test_end||'?'}</td>`
+    +`<td style="color:${(r.ir||0)>0?'#86efac':'#fca5a5'}">${r.ir==null?'-':(+r.ir).toFixed(2)}</td>`
+    +`<td>${r.ann==null?'-':((r.ann*100>=0?'+':'')+(r.ann*100).toFixed(1)+'%')}</td>`
+    +`<td style="color:#fca5a5">${r.maxdd==null?'-':(r.maxdd*100).toFixed(1)+'%'}</td>`
+    +`<td class="dim">${r.rank_ic==null?'-':(+r.rank_ic).toFixed(4)}</td></tr>`).join('');
+  h+='</tbody></table><div class="note">同一(池×模型)多行=不同时点/测试期算过。<b>测试期不同不可直接比 IR</b>,看同测试期内横向比。重跑会新增一条、不覆盖旧的——方便回溯每次结果。</div>';
+  $("histwrap").innerHTML=h;
+}
+$("histbtn").onclick=()=>{ const e=$("histwrap"); if(e.style.display==="none"){ e.style.display="block"; loadHist(); } else e.style.display="none"; };
+(async()=>{ await load(); loadBL(); })();
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>因子挖矿进展 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<script src="/static/echarts.min.js"></script>
+<style>
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  .banner{border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;line-height:1.5}
+  .stall{background:#1f1604;border:1px solid #92400e;color:#fcd34d}
+  .ok{background:#0c2a1a;border:1px solid #166534;color:#86efac}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  th{background:#111827;color:#94a3b8}
+  .new{color:#34d399;font-weight:700}.zero{color:#475569}
+  .chip{display:inline-block;background:#0b1220;border:1px solid #1e293b;color:#7dd3fc;border-radius:8px;padding:1px 6px;margin:1px;font-size:11px;font-family:monospace}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>RD-Agent 每轮挖矿(批次)产出的<b>有效因子数(eff)/全部评估数(all)</b>随时间变化。线持平=挖矿停滞(挖不出能打赢SOTA的新因子); 上升=真有新增。表里「新增」列绿色=该轮挖到新因子。便于对比历次挖矿是否在进步。<b>仅研究记录。</b></div></details>
+  <div class="wrap">
+    <div id="banner"></div>
+    <div id="chart" style="width:100%;height:300px;margin:6px 0"></div>
+    <div id="out" style="color:#64748b;padding:10px">加载中…</div>
+  </div>
+<script>
+const $=id=>document.getElementById(id);
+let CHART=null;
+function render(d){
+  const H=d.history||[];
+  if(!H.length){ $("out").innerHTML='<div class="zero" style="padding:10px">暂无挖矿记录。</div>'; return; }
+  const stall=d.stall_rounds||0;
+  $("banner").innerHTML = stall>=3
+    ? `<div class="banner stall">⚠️ <b>挖矿停滞 ${stall} 轮</b>: 最近 ${stall} 个批次有效因子完全没变(eff=${d.latest.n_eff}/all=${d.latest.n_all}), 即 fin_factor 跑了但挖不出能打赢现有 SOTA 的新因子。${d.latest.n_custom<=3?` 且仅 ${d.latest.n_custom}/${d.latest.n_eff} 像自定义因子, 其余是 Alpha158 子集——所谓"挖出的因子"大半不是真新挖的。`:''}</div>`
+    : `<div class="banner ok">✅ 挖矿在进展: 最近批次有新增因子。</div>`;
+  // chart: eff/all 随时间
+  if(!CHART) CHART=echarts.init($("chart"));
+  CHART.setOption({backgroundColor:"transparent",tooltip:{trigger:"axis"},
+    legend:{data:["有效因子eff","全部评估all"],textStyle:{color:"#94a3b8"},top:0},
+    grid:{left:40,right:20,top:30,bottom:60},
+    xAxis:{type:"category",data:H.map(h=>(h.created_at||h.label).slice(5,16)),axisLabel:{color:"#cbd5e1",rotate:40,fontSize:10}},
+    yAxis:{type:"value",axisLabel:{color:"#94a3b8"},splitLine:{lineStyle:{color:"#1e293b"}}},
+    series:[{name:"有效因子eff",type:"line",data:H.map(h=>h.n_eff),itemStyle:{color:"#34d399"},lineStyle:{width:2}},
+            {name:"全部评估all",type:"line",data:H.map(h=>h.n_all),itemStyle:{color:"#60a5fa"},lineStyle:{type:"dashed"}}]});
+  // table (倒序, 最近在上)
+  let h='<table><thead><tr><th>批次时间</th><th>批次</th><th>eff</th><th>all</th><th>本轮新增</th><th>似自定义</th></tr></thead><tbody>';
+  h+=H.slice().reverse().map(x=>`<tr><td>${(x.created_at||'').slice(0,16)}</td><td>${x.label}</td><td>${x.n_eff}</td><td>${x.n_all}</td><td class="${x.n_new>0?'new':'zero'}">${x.n_new>0?('+'+x.n_new+' '+(x.new_vs_prev||[]).slice(0,4).join(',')):'0'}</td><td>${x.n_custom}</td></tr>`).join('');
+  $("out").innerHTML=h+'</tbody></table><div class="note">'+`共 ${d.n_batches} 批次。「似自定义」=粗判非 Alpha158 标准成分的因子数(越少说明挖出的越偏 Alpha158 子集、越不像真新因子)。挖矿在 <a href="/rdagent" style="color:#60a5fa">RD-Agent因子页</a> 触发(默认2轮)。`+'</div>';
+  window.addEventListener("resize",()=>{if(CHART)CHART.resize();});
+}
+(async()=>{ try{ render(await (await fetch("/api/mine_history")).json()); }catch(e){ $("out").textContent="加载失败"; } })();
+</script>
+</body>
+</html>

@@ -1,0 +1,246 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>六避雷(立案+问询函+热榜+毛利+造假+龙虎榜) · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px}
+  .sub{color:#94a3b8;line-height:1.7;margin-bottom:12px;font-size:13px}
+  .upd{color:#64748b;font-size:12px}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){text-align:left}
+  th{background:#111827;color:#94a3b8;font-weight:600;cursor:pointer}
+  .empty{color:#94a3b8;padding:10px;font-size:13px}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:10px 13px;color:#cbd5e1;font-size:12.5px;line-height:1.7;margin-top:12px}
+  .warn{color:#fbbf24}
+  .neg{color:#f87171;font-weight:600}.pos{color:#34d399}
+  #q{background:#0b1220;border:1px solid #1e293b;color:#e2e8f0;padding:6px 10px;border-radius:8px;font-size:13px;width:220px}
+  .chk{color:#f87171;font-weight:700}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>【<span class="k">负面剔除信号</span>】整轮战役里唯一过硬的个股基本面因子:<b>毛利率同比恶化的股票要避开</b>。回测里"做多毛利改善股"赚不到钱(被price-in),但"<b>避开/做空毛利恶化股</b>"是稳健alpha(多空夏1.3、四段全正、过流动性关)。A股个股难融券→可落地形态就是<b>把这些股从你的持仓/买入候选里剔除</b>。下方=流动性池(流通市值≥20亿)里毛利率同比降幅最大的个股。<b>查持仓有没有踩雷:用搜索框输代码/名称。</b></div></details>
+  <div class="wrap">
+    <div class="hd">⚠️ 避雷清单 <span style="font-size:13px;color:#94a3b8">立案+问询函+事件(辞职/换所/减持)+热榜+毛利+造假+龙虎榜净卖</span></div>
+    <div style="margin:10px 0"><input id="q" placeholder="搜索代码/名称, 查我的持仓在不在两张避雷清单里"/></div>
+
+    <div class="card" style="border-color:#7f1d1d;background:#1a0606">
+      <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:2px">☠️ 立案调查黑名单(最强死亡信号, 一票否决)
+        <span class="upd" style="font-size:11px">证监会立案=后续ST/退市/巨亏</span></div>
+      <div id="invmeta" class="upd">加载中…</div>
+      <div id="invcontent" class="empty">加载中…</div>
+      <div class="note"><span class="warn">⚠️ </span><b>收到证监会《立案告知书》</b>=A股最强死亡信号。验证(405家): 立案后20日<b>-7.96%</b>/60日<b>-9.69%</b>/120日<b>-8.67%</b>, 胜率28-35%, <b>120日崩盘率53%</b>(区间回撤>30%)。<b>一票否决</b>: 立案后120交易日内全局买入黑名单, <b>持仓里有应无条件清仓</b>。源 巨潮cninfo公告标题关键词。</div>
+    </div>
+
+    <div class="card" style="border-color:#7f1d1d;background:#160808">
+      <div style="font-size:15px;font-weight:700;color:#fca5a5;margin-bottom:2px">📨 问询函避雷(监管负面, 日频)
+        <span class="upd" style="font-size:11px">收到问询函/关注函=监管警示</span></div>
+      <div id="inqmeta" class="upd">加载中…</div>
+      <div id="inqcontent" class="empty">加载中…</div>
+      <div class="note"><span class="warn">⚠️ </span><b>收到监管问询函/关注函</b>=负面信号(交易所质疑财务/经营/信披)。自动事件扫描器筛出+精测验证: 公告后<b>20日-4.38%/中位-5.24%/胜31%</b>, <b>2023/24/25三年全负</b>。比立案(-9%)温和但<b>更高频</b>。20交易日内避免买入/减仓。源 巨潮cninfo。</div>
+    </div>
+
+    <div class="card" style="border-color:#854d0e">
+      <div style="font-size:15px;font-weight:700;color:#fbbf24;margin-bottom:2px">🤖 事件避雷(自动扫描器筛出, 日频)
+        <span class="upd" style="font-size:11px">重组复牌/ST/行政处罚/冻结/解禁/高管辞职/换所/减持/员工持股(9类)</span></div>
+      <div id="evmeta" class="upd">加载中…</div>
+      <div id="evcontent" class="empty">加载中…</div>
+      <div class="note"><span class="warn">⚠️ </span><b>自动事件扫描器</b>批量扫描45种公告事件、分年精测robust后筛出的<b>9类事件避雷</b>(均值中位同负+多年全负): <b>重组复牌补跌</b>(60日中-11.4%最狠)、<b>账户/资产冻结</b>(60日中-5.5%)、<b>加帽ST</b>(60日中-5.8%)、<b>换会计师所</b>(60日中-7.8%)、<b>高管辞职</b>(20日中-6.4%)、<b>减持计划</b>(20日中-4.4%)、<b>行政处罚</b>(60日中-3.9%)、<b>限售解禁</b>(20日中-2.4%)、<b>员工持股草案</b>(20日中-2.7%弱)。各自避雷窗内避免买入/减仓。源 巨潮cninfo, 标记不剔除人工判断。</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:15px;font-weight:700;color:#f87171;margin-bottom:2px">🔥 热榜避雷(关注度反转, 日频)
+        <button onclick="refreshAvoid('hotavoid',this)" style="font-size:12px;padding:3px 10px;margin-left:8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">🔄 刷新</button>
+        <button onclick="toggleHotHist()" style="font-size:12px;padding:3px 10px;background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:6px;cursor:pointer">🕘 历史对比</button>
+        <span id="av-status" style="color:#94a3b8;font-size:12px;margin-left:6px"></span></div>
+      <div id="hotmeta" class="upd">加载中…</div>
+      <div id="hothist" style="display:none;margin:6px 0"></div>
+      <div id="hotcontent" class="empty">加载中…</div>
+      <div class="note"><span class="warn">⚠️ </span>当前上<b>同花顺热榜</b>=散户关注度透支,未来5/10/20日<b>跑输全市场 -0.85/-1.92/-3.19%</b>(t=-6~-14, 越久越跌)。<b style="color:#fca5a5">⚠️但这是中期(20日)反转,看你持有期</b>: 实测<b>次日短线热榜股反而有动量(+0.48% vs 非热榜-0.07%; 模型次日清单剔热榜反亏 t=-2.8)</b>。所以<b>次日/短线买入别因热榜剔除</b>; <b>中期持有(月+)才警惕反转</b>。可落地=<b>标红留痕不硬剔</b>(A股难融券),人工按持有期决定。<b>Top20</b>跌更狠;<b>连续天数</b>越多越透支。样本2024-2026,待更长OOS。</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:15px;font-weight:700;color:#fbbf24;margin-bottom:2px">📉 毛利率避雷(基本面恶化, 季频)
+        <button onclick="refreshAvoid('avoid',this)" style="font-size:12px;padding:3px 10px;margin-left:8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">🔄 刷新</button>
+        <span class="upd" style="font-size:11px">季频财报数据·重算约1-2分钟</span></div>
+      <div id="meta" class="upd">加载中…</div>
+      <div id="content" class="empty">加载中…</div>
+      <div class="note"><span class="warn">⚠️ </span>这是<b>负面信号</b>:上榜=最近一期毛利率同比明显恶化,属"应避开"而非"应卖空"(融券受限)。已是 *ST 的多为已知地雷;更有价值的是<b>看着正常但毛利率悄悄走坏</b>的票。季频更新(财报驱动)。毛利率已截断到[-50,100]去极端脏值。金融/银行类无毛利率不在此列。</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:15px;font-weight:700;color:#f472b6;margin-bottom:2px">🕵️ 财务造假避雷(Beneish-DSRI, 年频)
+        <span class="upd" style="font-size:11px">应收账款透支指数·年报驱动</span></div>
+      <div id="fraudmeta" class="upd">加载中…</div>
+      <div id="fraudcontent" class="empty">加载中…</div>
+      <div class="note"><span class="warn">⚠️ </span><b>Beneish-DSRI</b>=本期(应收账款/营收)÷上期(应收账款/营收)。<b>&gt;1.5重点警惕</b>:应收账款涨得比营收快=可能<b>虚增收入(把卖不出的货记成应收"利润")</b>。验证(2625样本): DSRI最高20%组未来半年<b>跑输市场-1.05%/t=6.8</b>(极显著)。<b>负面剔除</b>:从持仓/买入候选剔除高DSRI股,非做空。流动性池(流通市值≥20亿)。</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:15px;font-weight:700;color:#f472b6;margin-bottom:2px">📉 龙虎榜净卖避雷(日频)
+        <span class="upd" style="font-size:11px">游资/机构出货砸盘</span></div>
+      <div id="lhbmeta" class="upd">加载中…</div>
+      <div id="lhbcontent" class="empty">加载中…</div>
+      <div class="note"><span class="warn">⚠️ </span><b>龙虎榜净卖出股</b>=当日龙虎榜中净买额占成交额<b>后30%(净卖最重)</b>=主力/游资出货砸盘。验证(gate_lhb_verify): 净卖股<b>T+1开盘买后5日跑输-2.19%</b>,<b>2024/25/26三年全负</b>(-2.85/-1.21/-2.63),强度≈热榜。<b>⚠️注意</b>: 只有<b>避雷侧(净卖)是真</b>;"净买能选股(IC0.16)"是<b>盘后披露的时间穿越假象</b>(T+1后IC暴跌到0.046)。负面剔除/标记,持仓里有就警惕。</div>
+    </div>
+  </div>
+<script>
+let ALL=[],ASOF="",PERIOD="",NUNI=0;
+let HOT=[],HOT_ASOF="";
+function num(x){return x===null||x===undefined?'<span style="color:#475569">—</span>':x;}
+function renderHot(){
+  const q=(document.getElementById("q").value||"").trim().toLowerCase();
+  let rows=HOT;
+  if(q) rows=HOT.filter(r=>(r.code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q)||(r.concept||"").toLowerCase().includes(q));
+  if(!rows.length){document.getElementById("hotcontent").innerHTML='<div class="empty">'+(q?'未在热榜避雷清单中找到 —— 该票当前不在同花顺热榜(好事)。':'暂无数据')+'</div>';return;}
+  let h='<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>热度排名</th><th>连续上榜</th><th>当日涨跌%</th><th>概念</th></tr></thead><tbody>';
+  h+=rows.map((r,i)=>{
+    const hit=q&&((r.code||'').toLowerCase().includes(q)||(r.name||'').toLowerCase().includes(q));
+    const nm=hit?'<span class="chk">'+r.name+'</span>':'<span class="neg">'+r.name+'</span>';
+    const rk=r.top20?'<span class="neg">'+r.rank+' ·Top20</span>':r.rank;
+    return `<tr><td>${i+1}</td><td>${r.code}</td><td style="text-align:left">${nm}</td><td>${rk}</td><td>${r.days_on}日</td><td class="${(r.pct||0)>=0?'pos':'neg'}">${num(r.pct)}</td><td style="text-align:left;font-size:11px;color:#94a3b8">${r.concept||''}</td></tr>`;
+  }).join("");
+  h+='</tbody></table>';
+  document.getElementById("hotcontent").innerHTML=h;
+}
+function render(){
+  const q=(document.getElementById("q").value||"").trim().toLowerCase();
+  let rows=ALL;
+  if(q) rows=ALL.filter(r=>(r.code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q)||(r.ind||"").toLowerCase().includes(q));
+  if(!rows.length){document.getElementById("content").innerHTML='<div class="empty">'+(q?'未在避雷清单中找到 —— 说明该票毛利率没有明显恶化(好事)。':'暂无数据')+'</div>';return;}
+  let h='<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>行业</th><th>本期毛利率%</th><th>去年同期%</th><th>同比变化</th><th>报告期</th></tr></thead><tbody>';
+  h+=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${r.code}</td><td>${q&&((r.code||'').toLowerCase().includes(q)||(r.name||'').toLowerCase().includes(q))?'<span class="chk">'+r.name+'</span>':r.name}</td><td>${r.ind||''}</td><td>${num(r.gm)}</td><td>${num(r.gm_prev)}</td><td class="neg">${r.dgm}</td><td>${(r.period||'').slice(0,4)+'/'+(r.period||'').slice(4,6)}</td></tr>`).join("");
+  h+='</tbody></table>';
+  document.getElementById("content").innerHTML=h;
+}
+let FRAUD=[],FRAUD_ASOF="";
+function renderFraud(){
+  const q=(document.getElementById("q").value||"").trim().toLowerCase();
+  let rows=FRAUD;
+  if(q) rows=FRAUD.filter(r=>(r.code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q)||(r.ind||"").toLowerCase().includes(q));
+  if(!rows.length){document.getElementById("fraudcontent").innerHTML='<div class="empty">'+(q?'未在造假嫌疑清单中找到 —— 说明该票应收账款没异常飙升(好事)。':'暂无数据')+'</div>';return;}
+  let h='<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>行业</th><th>DSRI</th><th>本期应收/营收%</th><th>上期%</th><th>报告期</th></tr></thead><tbody>';
+  h+=rows.map((r,i)=>`<tr><td>${i+1}</td><td>${r.code}</td><td>${q&&((r.code||'').toLowerCase().includes(q)||(r.name||'').toLowerCase().includes(q))?'<span class="chk">'+r.name+'</span>':r.name}</td><td>${r.ind||''}</td><td class="${r.dsri>=1.5?'neg':''}" style="font-weight:600">${num(r.dsri)}</td><td>${num(r.ar_ratio)}</td><td>${num(r.ar_ratio_prev)}</td><td>${(r.period||'').slice(0,4)}</td></tr>`).join("");
+  h+='</tbody></table>';
+  document.getElementById("fraudcontent").innerHTML=h;
+}
+fetch("/api/avoid/fraud").then(r=>r.json()).then(d=>{
+  FRAUD=d.items||[]; FRAUD_ASOF=d.as_of||"";
+  document.getElementById("fraudmeta").innerHTML = d.message?`<span style="color:#94a3b8">${d.message}</span>`:`报告期 ${d.period||'-'} · 流动性池 ${d.n_universe||0} 只 · 取DSRI最高 ${FRAUD.length} 只 · 数据 ${FRAUD_ASOF}`;
+  renderFraud();
+}).catch(()=>{document.getElementById("fraudcontent").innerHTML='<div class="empty">加载失败</div>';});
+let EVA={};
+function renderEva(){
+  const q=(document.getElementById("q").value||"").trim().toLowerCase();
+  let h="";
+  for(const cat in EVA){const c=EVA[cat];let rows=(c.items||[]).filter(x=>x.in_window);
+    if(q)rows=rows.filter(r=>(r.ts_code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q));
+    if(!rows.length)continue;
+    h+="<div style=margin-top:6px;color:#fbbf24;font-weight:600;font-size:12px>"+cat+" ("+rows.length+"窗口内)</div>";
+    h+="<table><thead><tr><th>代码</th><th>名称</th><th>公告日</th><th>距今</th></tr></thead><tbody>";
+    h+=rows.slice(0,15).map(r=>"<tr><td>"+r.ts_code+"</td><td style=text-align:left>"+(q&&((r.ts_code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q))?"<span class=chk>"+r.name+"</span>":"<span class=neg>"+r.name+"</span>")+"</td><td>"+r.ann_date+"</td><td>"+r.days_since+"天</td></tr>").join("");
+    h+="</tbody></table>";}
+  document.getElementById("evcontent").innerHTML=h||"<div class=empty>"+(q?"未在事件避雷清单中找到(好事)":"窗口内暂无")+"</div>";
+}
+fetch("/api/avoid/events").then(r=>r.json()).then(d=>{EVA=d.cats||{};
+  const tot=Object.values(EVA).reduce((s,c)=>s+(c.n_window||0),0);
+  document.getElementById("evmeta").innerHTML=d.message?("<span style=color:#94a3b8>"+d.message+"</span>"):("数据 "+(d.as_of||"-")+" · 窗口内共"+tot+"只");
+  renderEva();}).catch(()=>{document.getElementById("evcontent").innerHTML="<div class=empty>加载失败</div>";});
+let INQ=[];
+function renderInq(){
+  const q=(document.getElementById("q").value||"").trim().toLowerCase();
+  let rows=INQ; if(q) rows=INQ.filter(r=>(r.ts_code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q));
+  if(!rows.length){document.getElementById("inqcontent").innerHTML="<div class=\"empty\">"+(q?"未在问询函清单中找到(好事)。":"暂无")+"</div>";return;}
+  let h="<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>问询日</th><th>距今</th><th>标题</th></tr></thead><tbody>";
+  h+=rows.map((r,i)=>"<tr><td>"+(i+1)+"</td><td>"+(r.ts_code||r.code)+"</td><td style=text-align:left>"+(q&&((r.ts_code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q))?"<span class=chk>"+r.name+"</span>":"<span class=neg>"+r.name+"</span>")+"</td><td>"+r.ann_date+"</td><td>"+r.days_since+"天"+(r.in_window?"":" <span style=color:#64748b>(过窗)</span>")+"</td><td style=text-align:left;font-size:11px;color:#94a3b8>"+(r.title||"")+"</td></tr>").join("");
+  document.getElementById("inqcontent").innerHTML=h+"</tbody></table>";
+}
+fetch("/api/avoid/inquiry").then(r=>r.json()).then(d=>{INQ=d.items||[];
+  document.getElementById("inqmeta").innerHTML=d.message?("<span style=color:#94a3b8>"+d.message+"</span>"):("数据 "+(d.as_of||"-")+" · 问询函 "+INQ.length+"只(窗口内"+(d.n_window||0)+") · 20日-4.38%三年全负");
+  renderInq();}).catch(()=>{document.getElementById("inqcontent").innerHTML="<div class=empty>加载失败</div>";});
+let INV=[];
+function renderInv(){
+  const q=(document.getElementById("q").value||"").trim().toLowerCase();
+  let rows=INV;
+  if(q) rows=INV.filter(r=>(r.ts_code||r.code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q));
+  if(!rows.length){document.getElementById("invcontent").innerHTML='<div class="empty">'+(q?'未在立案黑名单中找到 —— 该票当前无证监会立案(好事)。':'暂无数据')+'</div>';return;}
+  let h='<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>立案日</th><th>距今</th><th>公告标题</th></tr></thead><tbody>';
+  h+=rows.map((r,i)=>{
+    const hit=q&&((r.ts_code||r.code||'').toLowerCase().includes(q)||(r.name||'').toLowerCase().includes(q));
+    const nm=hit?'<span class="chk">'+r.name+'</span>':'<span class="neg">'+r.name+'</span>';
+    return `<tr><td>${i+1}</td><td>${r.ts_code||r.code}</td><td style="text-align:left">${nm}</td><td>${r.ann_date}</td><td>${r.days_since}天${r.in_blacklist?'':' <span style="color:#64748b">(已过黑名单期)</span>'}</td><td style="text-align:left;font-size:11px;color:#94a3b8">${r.title||''}</td></tr>`;
+  }).join("");
+  h+='</tbody></table>';
+  document.getElementById("invcontent").innerHTML=h;
+}
+fetch("/api/avoid/investigation").then(r=>r.json()).then(d=>{
+  INV=d.items||[];
+  document.getElementById("invmeta").innerHTML = d.message?`<span style="color:#94a3b8">${d.message}</span>`:`数据 ${d.as_of||'-'} · 立案 ${INV.length} 只(黑名单期 ${d.n_blacklist||0}) · 立案后120日-8.67%/崩盘率53%`;
+  renderInv();
+}).catch(()=>{document.getElementById("invcontent").innerHTML='<div class="empty">加载失败</div>';});
+let LHB=[];
+function renderLhb(){
+  const q=(document.getElementById("q").value||"").trim().toLowerCase();
+  let rows=LHB;
+  if(q) rows=LHB.filter(r=>(r.ts_code||r.code||"").toLowerCase().includes(q)||(r.name||"").toLowerCase().includes(q)||(r.reason||"").toLowerCase().includes(q));
+  if(!rows.length){document.getElementById("lhbcontent").innerHTML='<div class="empty">'+(q?'未在龙虎榜净卖清单中找到 —— 该票当前不在龙虎榜净卖出名单(好事)。':'暂无数据')+'</div>';return;}
+  let h='<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>净买额(亿)</th><th>净买占成交%</th><th>上榜原因</th></tr></thead><tbody>';
+  h+=rows.map((r,i)=>{
+    const hit=q&&((r.ts_code||r.code||'').toLowerCase().includes(q)||(r.name||'').toLowerCase().includes(q));
+    const nm=hit?'<span class="chk">'+r.name+'</span>':'<span class="neg">'+r.name+'</span>';
+    return `<tr><td>${i+1}</td><td>${r.ts_code||r.code}</td><td style="text-align:left">${nm}</td><td class="neg">${num(r.net_yi)}</td><td class="neg">${num(r.net_ratio_pct)}%</td><td style="text-align:left;font-size:11px;color:#94a3b8">${r.reason||''}</td></tr>`;
+  }).join("");
+  h+='</tbody></table>';
+  document.getElementById("lhbcontent").innerHTML=h;
+}
+fetch("/api/avoid/lhb").then(r=>r.json()).then(d=>{
+  LHB=d.items||[];
+  document.getElementById("lhbmeta").innerHTML = d.message?`<span style="color:#94a3b8">${d.message}</span>`:`龙虎榜日 ${d.as_of||'-'} · 净卖出 ${LHB.length} 只(净买占比后30%) · 净卖股T+1后5日-2.19%三年全负`;
+  renderLhb();
+}).catch(()=>{document.getElementById("lhbcontent").innerHTML='<div class="empty">加载失败</div>';});
+document.getElementById("q").addEventListener("input",()=>{render();renderHot();renderFraud();renderLhb();renderInv();renderInq();renderEva();});
+// 手动刷新(avoid=毛利率/hotavoid=热榜), 触发PC重算后自动刷新本页
+async function refreshAvoid(kind,btn){
+  const st=document.getElementById("av-status"); btn.disabled=true; const old=btn.textContent; btn.textContent="刷新中…";
+  try{ const r=await (await fetch("/api/refresh/"+kind,{method:"POST"})).json();
+    st.textContent=r.message||"已通知PC重算…";
+    const t=setInterval(async()=>{ try{ const s=await (await fetch("/api/refresh/status")).json();
+      if(s.kind===kind&&(s.state==="done"||s.state==="error")){ clearInterval(t); btn.disabled=false; btn.textContent=old;
+        st.textContent=(s.state==="done"?"✅ 已更新, 刷新中…":"❌ "+(s.msg||"失败")); if(s.state==="done") setTimeout(()=>location.reload(),800); } }catch(e){} },5000);
+  }catch(e){ btn.disabled=false; btn.textContent=old; st.textContent="请求失败"; }
+}
+let HOTHIST_OPEN=false;
+async function toggleHotHist(){
+  const box=document.getElementById("hothist"); HOTHIST_OPEN=!HOTHIST_OPEN;
+  box.style.display=HOTHIST_OPEN?"block":"none"; if(!HOTHIST_OPEN) return;
+  box.innerHTML='<div class="empty">加载历史…</div>';
+  try{ const d=await (await fetch("/api/avoid/hot/history")).json(); const hs=d.history||[];
+    if(!hs.length){ box.innerHTML='<div class="empty">暂无历史(每次刷新/每日跑会追加一条)</div>'; return; }
+    let h='<div style="font-size:12px;color:#64748b;margin-bottom:3px">共 '+d.n+' 次热榜快照(最近在上),对比哪些股进出热榜:</div>';
+    h+='<table><thead><tr><th>数据日</th><th>上榜数</th><th>Top20</th><th style="text-align:left">上榜股(前12)</th></tr></thead><tbody>';
+    h+=hs.map(x=>{const its=x.items||[]; const names=its.slice(0,12).map(i=>i.name||i.code).join("、");
+      return `<tr><td>${x.as_of||x.trade_date||'-'}</td><td>${its.length}</td><td class="neg">${x.n_top20||0}</td><td style="text-align:left;font-size:11px;color:#94a3b8">${names}</td></tr>`;}).join("");
+    box.innerHTML=h+"</tbody></table>";
+  }catch(e){ box.innerHTML='<div class="empty">历史加载失败</div>'; }
+}
+fetch("/api/avoid/hot").then(r=>r.json()).then(d=>{
+  HOT=d.items||[];HOT_ASOF=d.as_of||"";
+  document.getElementById("hotmeta").innerHTML=`热榜数据 ${HOT_ASOF} · 回看 ${d.window_days||0} 交易日 · 当前热榜A股 ${HOT.length} 只(其中 Top20 高关注度 ${d.n_top20||0} 只)`;
+  if(d.message&&!HOT.length){document.getElementById("hotcontent").innerHTML='<div class="empty">'+d.message+'</div>';return;}
+  renderHot();
+}).catch(e=>{document.getElementById("hotcontent").innerHTML="加载失败: "+e;});
+fetch("/api/avoid").then(r=>r.json()).then(d=>{
+  ALL=d.items||[];ASOF=d.as_of||"";PERIOD=d.period||"";NUNI=d.n_universe||0;
+  document.getElementById("meta").innerHTML=`更新 ${ASOF} · 报告期 ${PERIOD.slice(0,4)+'/'+PERIOD.slice(4,6)} · 流动性池 ${NUNI} 只 · 列出恶化最严重 ${ALL.length} 只`;
+  if(d.message&&!ALL.length){document.getElementById("content").innerHTML='<div class="empty">'+d.message+'</div>';return;}
+  render();
+}).catch(e=>{document.getElementById("content").innerHTML="加载失败: "+e;});
+</script>
+</body>
+</html>

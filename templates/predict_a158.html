@@ -1,0 +1,124 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Alpha158 预测 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .mbtn{background:#0b1220;border:1px solid #1e293b;color:#cbd5e1;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+  .mbtn.sel{border-color:#3b82f6;color:#fff;background:#15233b}
+  .mbtn.deep{border-style:dashed}
+  #run{background:#166534;border:none;color:#fff;padding:7px 18px;border-radius:8px;cursor:pointer;font-size:14px}
+  #run:disabled{opacity:.5;cursor:not-allowed}
+  #st{color:#94a3b8;font-size:13px}
+  .meta{color:#64748b;font-size:12px;margin:6px 0}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
+  th,td{border:1px solid #1e293b;padding:5px 9px;text-align:right}
+  th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3),th:nth-child(4),td:nth-child(4){text-align:left}
+  th{background:#111827;color:#94a3b8}
+  td a{color:#60a5fa;cursor:pointer;text-decoration:none}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+  .cmp{color:#a78bfa}
+  nav.topnav{flex-wrap:wrap !important;row-gap:6px;overflow:visible}
+  nav.topnav .navbreak{flex-basis:100% !important;width:100%;height:1px;margin:4px 0;background:#1e293b;border:0}
+  nav.topnav .navlabel{color:#a78bfa;font-size:12px;align-self:center;margin-right:2px}
+  nav.topnav a small{color:#64748b;font-size:10px;margin-left:2px}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>用<b>全 Alpha158(158个量价因子) + 沪深300</b>直接训练所选模型, 出次日 Top-50 买入清单。与 <a href="/rdagent" class="cmp">RD-Agent因子页(24因子)</a>并存, 用于<b>预测对比</b>——同数据擂台 PatchTST IR1.375 / XGB IR1.136 / LGB IR0.615, 而24因子子集 xgb 仅 IR≈0.91。选模型→点运行→PC后台训练+预测(切走切回进度不丢)。<b>仅供研究, 非投资建议。</b></div></details>
+  <div class="wrap">
+    <div class="bar">
+      <span class="meta">模型:</span><span id="mbtns"></span>
+    </div>
+    <div class="bar">
+      <button id="run">▶ 用 Alpha158 跑次日买入清单</button>
+      <button id="runall" style="background:#1e3a8a">🚀 一键全跑(所有模型对比)</button>
+      <span id="st"></span>
+    </div>
+    <div class="note">数据=全 Alpha158(158因子)+csi300, 训练2010-17/验证18-19/测试20至今, 撮合次日开盘价。深度时序模型(虚线框)训练较慢(~5-10分钟)。</div>
+    <div id="out" class="meta" style="padding:10px">选模型后点运行。已有结果会自动显示。</div>
+    <div id="gridbox" style="margin-top:14px"></div>
+  </div>
+<script src="/static/unlock.js"></script>
+<script>
+const MODELS=[["lgb","LGB"],["xgb","XGB"],["catboost","CatBoost"],["ols","OLS"],["ridge","Ridge"],["lasso","Lasso"],
+  ["dlinear","DLinear",1],["patchtst","PatchTST",1],["timesnet","TimesNet",1],["itransformer","iTransformer",1]];
+let SEL="xgb", POLL=null;
+const $=id=>document.getElementById(id);
+function selLabel(){ const m=MODELS.find(x=>x[0]===SEL); return m?m[1]:SEL; }
+function renderBtns(){
+  $("mbtns").innerHTML=MODELS.map(m=>`<button class="mbtn ${m[2]?'deep':''} ${m[0]===SEL?'sel':''}" data-m="${m[0]}">${m[1]}</button>`).join(" ");
+  $("mbtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{SEL=b.dataset.m;renderBtns();});
+  const rb=$("run"); if(rb) rb.textContent=`▶ 只跑选中模型「${selLabel()}」出次日清单`;
+}
+function fnum(x){return (x===null||x===undefined)?'—':(x>0?'+':'')+(+x).toFixed(4);}
+function unlockCell(x){
+  return formatUnlockInfo(x);
+}
+function render(d){
+  const r=d.result;
+  if(!r||!r.hits||!r.hits.length){ $("out").innerHTML='<div class="meta" style="padding:10px">暂无结果, 点运行生成。</div>'; return; }
+  let h=`<div class="meta">模型 <b style="color:#e2e8f0">${r.model}</b> · 预测基准日 ${r.as_of} · 沪深300 ${r.n_universe}只 · 生成 ${r.generated_at||''}</div>`;
+  h+='<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>行业</th><th>解禁/协转</th><th>打分</th></tr></thead><tbody>';
+  h+=r.hits.map(x=>`<tr><td>${x.rank}</td><td><a href="/?code=${x.code}" title="看K线">${x.code}</a></td><td>${(x.name||'').replace(/</g,'&lt;')}</td><td>${(x.industry||'')}</td><td>${unlockCell(x)}</td><td>${fnum(x.score)}</td></tr>`).join('');
+  h+='</tbody></table>';
+  $("out").innerHTML=h;
+}
+async function load(){ try{ return await (await fetch("/api/predict_a158")).json(); }catch(e){ return null; } }
+async function poll(){
+  const d=await load(); if(!d) return;
+  const s=d.status||{};
+  if(d.pending || s.state==="running"){ $("st").textContent="⏳ "+(s.msg||"PC 训练+预测中…"); return; }
+  clearInterval(POLL); POLL=null; $("run").disabled=false;
+  if(s.state==="error"){ $("st").textContent="❌ "+(s.msg||"失败"); return; }
+  $("st").textContent="✅ 完成 · "+((d.result||{}).generated_at||""); render(d);
+}
+$("run").onclick=async()=>{
+  $("run").disabled=true; $("st").textContent="提交中…";
+  try{
+    const j=await (await fetch("/api/predict_a158/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:SEL})})).json();
+    if(!j.ok){ $("st").textContent="⚠️ "+j.message; $("run").disabled=false; return; }
+    $("st").textContent="⏳ "+j.message;
+    if(POLL)clearInterval(POLL); POLL=setInterval(poll,5000);
+  }catch(e){ $("st").textContent="提交失败: "+e.message; $("run").disabled=false; }
+};
+// 首次加载: 显示已有结果; 若PC仍在跑则恢复轮询(切走切回进度不丢)
+renderBtns();
+(async()=>{
+  const d=await load(); if(!d) return;
+  if(d.result){ render(d); SEL=d.result.model||SEL; renderBtns(); $("st").textContent="上次结果 · "+((d.result||{}).generated_at||""); }
+  const s=d.status||{};
+  if(d.pending || s.state==="running"){ $("run").disabled=true; $("st").textContent="⏳ "+(s.msg||"PC 处理中…"); if(POLL)clearInterval(POLL); POLL=setInterval(poll,5000); }
+})();
+// ===== 一键全跑 + 所有模型 Top30 对比网格(共识高亮) =====
+let GPOLL=null;
+async function loadGrid(){
+  let d; try{ d=await (await fetch("/api/predict_a158/all?topn=30")).json(); }catch(e){ return; }
+  const box=$("gridbox");
+  if(!d.models||!d.models.length){ box.innerHTML='<div class="meta">还没有多模型打分。点「🚀 一键全跑」让各模型都出清单后在此对比。</div>'; return; }
+  const st=d.status||{}; const running=d.pending||st.state==="running";
+  let h=`<div class="meta">各模型 Top30 对比 · ${d.models.length}模型 · 基准日 ${d.as_of||''} ${running?('· ⏳ '+(st.msg||'跑模型中…')):''}</div>`;
+  h+='<table><thead><tr><th>共识</th><th>代码</th><th>名称</th><th>行业</th>'+d.models.map(m=>`<th title="IR ${(d.model_ir[m]??'')}">${m}</th>`).join('')+'</tr></thead><tbody>';
+  h+=d.rows.map(r=>{const cons=r.n_picks>=2;
+    return `<tr${cons?' style="background:#0c1f1a"':''}><td><b style="color:${cons?'#5eead4':'#64748b'}">${r.n_picks}</b></td><td><a href="/?code=${r.code}" style="color:#60a5fa">${r.code}</a></td><td>${(r.name||'').replace(/</g,'&lt;')}</td><td>${r.industry||''}</td>`+
+      d.models.map(m=>{const rk=r.picks[m]; return rk?`<td style="background:#0c1f1a;color:#5eead4">${rk}</td>`:'<td style="color:#475569">·</td>';}).join('')+'</tr>';}).join('');
+  box.innerHTML=h+'</tbody></table><div class="note">「共识」=被几个模型选进Top30; 绿格=该票在该模型里的排名。多绿=多模型认可(更稳), 单绿=单模型独宠(更投机)。</div>';
+  if(running){ if(!GPOLL) GPOLL=setInterval(loadGrid,8000); } else if(GPOLL){ clearInterval(GPOLL); GPOLL=null; }
+}
+$("runall").onclick=async()=>{
+  $("runall").disabled=true; $("st").textContent="提交全跑…";
+  try{ const j=await (await fetch("/api/predict_a158/runall",{method:"POST"})).json();
+    $("st").textContent=(j.ok?"⏳ ":"⚠️ ")+j.message;
+    if(j.ok){ if(GPOLL)clearInterval(GPOLL); GPOLL=setInterval(loadGrid,8000); loadGrid(); }
+  }catch(e){ $("st").textContent="提交失败"; }
+  setTimeout(()=>{$("runall").disabled=false;},3000);
+};
+loadGrid();
+</script>
+</body>
+</html>

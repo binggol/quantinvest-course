@@ -1,0 +1,12 @@
+diff --git a/gen_report.py b/gen_report.py
+--- a/gen_report.py
++++ b/gen_report.py
+@@ -129,4 +129,7 @@ def main():
+     request_meta={}
+     if len(sys.argv)>2:
+-        try: request_meta=json.loads(sys.argv[2])
++        try:
++            meta_arg=sys.argv[2]
++            request_meta=(json.load(open(meta_arg,encoding="utf-8"))
++                          if os.path.exists(meta_arg) else json.loads(meta_arg))
+         except Exception: request_meta={}

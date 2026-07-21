@@ -1,0 +1,214 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>指数纳入(实盘) · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .hd{font-size:21px;font-weight:700;margin:6px 0 2px;background:linear-gradient(90deg,#60a5fa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .upd{color:#94a3b8;font-size:13px;margin-bottom:8px}
+  .sub{color:#94a3b8;line-height:1.6;font-size:13px;margin-bottom:20px;background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;margin-bottom:16px}
+  .buy h3{color:#60a5fa;margin-top:0;font-size:16px}
+  .sell h3{color:#f87171;margin-top:0;font-size:16px}
+  .watch h3{color:#cbd5e1;margin-top:0;font-size:16px}
+  table{width:100%;border-collapse:collapse;font-size:14px;background:#1e293b;border-radius:6px;overflow:hidden}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #334155}
+  th{color:#94a3b8;font-weight:600;background:#0f172a}
+  tr:last-child td{border-bottom:none}
+  .tag{background:#334155;color:#e2e8f0;padding:2px 6px;border-radius:4px;font-size:12px}
+  .highlight{color:#f87171;font-weight:bold}
+  .empty{text-align:center;color:#64748b;padding:30px 0;font-size:15px}
+  .note{font-size:13px;color:#94a3b8;margin-top:20px;padding-top:10px;border-top:1px dashed #334155}
+</style>
+</head>
+<body>
+{% include "_nav.html" %}
+
+<div class="wrap" id="cal-box"></div>
+<div class="wrap" id="foreign-box"></div>
+<div class="wrap" id="content"><div class="empty">加载中...</div></div>
+<div class="wrap" id="predict-box"></div>
+
+<script>
+fetch("/api/foreign_inclusion").then(r=>r.json()).then(d=>{
+  const box=document.getElementById("foreign-box"); if(!box) return;
+  const sch=d.schedule||[], cands=d.candidates||[];
+  if(!sch.length){ return; }
+  let h='<div class="card" style="border-color:#854d0e;background:#1a160d"><div style="font-weight:700;color:#fbbf24;margin-bottom:6px">🌏 境外指数纳入日历(MSCI/富时罗素中国)</div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:#94a3b8"><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #333">指数</th><th style="padding:4px 8px;border-bottom:1px solid #333">公告日</th><th style="padding:4px 8px;border-bottom:1px solid #333">生效日</th><th style="padding:4px 8px;border-bottom:1px solid #333">距公告</th><th style="padding:4px 8px;border-bottom:1px solid #333">距生效</th></tr></thead><tbody>';
+  h+=sch.map(s=>`<tr><td style="text-align:left;padding:4px 8px;font-weight:600">${s.index}</td><td style="text-align:center;padding:4px 8px">${s.ann_date}</td><td style="text-align:center;padding:4px 8px;color:#fbbf24">${s.eff_date}</td><td style="text-align:center;padding:4px 8px">${s.days_to_ann>0?s.days_to_ann+'天':'已过'}</td><td style="text-align:center;padding:4px 8px;font-weight:700">${s.days_to_eff>0?s.days_to_eff+'天':'已过'}</td></tr>`).join('');
+  h+='</tbody></table>';
+  if(cands.length){
+    h+=`<div style="margin-top:10px;font-weight:600;color:#cbd5e1">粗略候选(市值代理, ${cands.length}只) <span style="color:#f87171;font-size:11px">⚠️非官方预测</span></div>`;
+    h+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">'+cands.slice(0,30).map(c=>`<span title="${c.industry} 流通${c.circ_mv_yi}亿 换手${c.turnover}%" style="background:#0f172a;border:1px solid #475569;border-radius:8px;padding:2px 8px;font-size:12px;color:#cbd5e1">${c.name} <span style="color:#64748b">${c.circ_mv_yi}亿</span></span>`).join('')+'</div>';
+  }
+  h+=`<div style="color:#f87171;font-size:11.5px;margin-top:8px;line-height:1.6">${d.disclaimer||''}</div></div>`;
+  box.innerHTML=h;
+}).catch(e=>{});
+let _pollT=null;
+async function reReq(){
+  const btn=document.getElementById('recalc'), st=document.getElementById('recalc-status');
+  btn.disabled=true; st.textContent='已通知PC...';
+  try{ const r=await (await fetch('/api/index_inclusion/request',{method:'POST'})).json(); st.textContent=r.message||''; }catch(e){ st.textContent='请求失败'; btn.disabled=false; return; }
+  if(_pollT) clearInterval(_pollT);
+  _pollT=setInterval(pollStatus, 8000);
+}
+async function pollStatus(){
+  try{
+    const s=await (await fetch('/api/index_inclusion/status')).json();
+    const st=document.getElementById('recalc-status'); if(!st) return;
+    if(s.msg) st.textContent='PC: '+s.msg;
+    if(s.state==='done'){ clearInterval(_pollT); st.textContent='✅ 完成, 正在刷新...'; setTimeout(()=>location.reload(),1500); }
+    if(s.state==='error'){ clearInterval(_pollT); const b=document.getElementById('recalc'); if(b) b.disabled=false; }
+  }catch(e){}
+}
+function tbl(rows, cols, rowClassFn=null) {
+  if(!rows||!rows.length) return "<div class='empty'>无</div>";
+  let h="<table><thead><tr>"+cols.map(c=>`<th>${c[0]}</th>`).join("")+"</tr></thead><tbody>";
+  h+=rows.map(r=>{
+      let trClass = rowClassFn ? rowClassFn(r) : "";
+      return `<tr class="${trClass}">`+cols.map(c=>`<td>${c[1](r)}</td>`).join("")+"</tr>";
+  }).join("");
+  return h+"</tbody></table>";
+}
+
+fetch("/api/index_inclusion_pro").then(r=>r.json()).then(d=>{
+  if(d.source_state && d.source_state!=="ok"){
+    const label=d.source_state==="missing"?"指数纳入数据尚未生成":"指数纳入数据文件无法解析";
+    document.getElementById("content").innerHTML=`<div class="hd">⚡ 指数纳入 实盘看板</div><div class="card"><div class="empty" style="color:#f87171">${label}</div><div style="text-align:center;margin-top:10px"><button type="button" onclick="reReq()" title="重新生成指数纳入数据">↻ 重算纳入数据</button> <span id="recalc-status" class="upd"></span></div></div>`;
+    return;
+  }
+  let h=`<div class="hd">⚡ 指数纳入 实盘看板</div><div class="upd">🕒 ${d.updated||"-"} | 📅 ${d.today||"-"}</div>`;
+  h+=`<div class="sub">${d.strategy||""}</div>`;
+  h+=`<div style="margin:8px 0 14px"><button id="recalc" onclick="reReq()" style="font-size:13px;padding:6px 14px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">🔄 重算纳入数据</button> <span id="recalc-status" style="color:#94a3b8;font-size:13px;margin-left:8px"></span></div>`;
+
+  const buyCols=[["代码",r=>r.code],["名称",r=>r.name],["指数",r=>`<span class="tag">${r.index}</span>`],
+              ["生效日(T)",r=>r.t_date], ["计划平仓", r=>r.t_date+" 盘前或集合竞价"]];
+              
+  const sellCols=[["代码",r=>r.code],["名称",r=>r.name],["指数",r=>`<span class="tag">${r.index}</span>`],
+              ["生效日(T)",r=>r.t_date], ["操作", r=>`<span class="highlight">尾盘必卖</span>`]];
+              
+  const holdCols=[["代码",r=>r.code],["名称",r=>r.name],["指数",r=>`<span class="tag">${r.index}</span>`],
+               ["已持有(天)",r=>r.held_td],["倒计时(天)",r=>r.to_sell_td]];
+               
+  const watchCols=[["代码",r=>r.code],["名称",r=>r.name],["指数",r=>`<span class="tag">${r.index}</span>`],
+               ["生效日(T)",r=>r.t_date],["计划建仓(T-20)",r=>r.buy_date]];
+               
+  const nbuy=(d.buy_today||[]).length, nsell=(d.sell_today||[]).length, nhold=(d.holdings||[]).length, nwatch=(d.watch||[]).length;
+  
+  if(nbuy+nsell+nhold+nwatch===0){
+    h+=`<div class="card"><div class="empty">当前非指数调仓窗口期。<br>核心调整期通常为 <b>5月下旬 ~ 6月上旬</b> 以及 <b>11月下旬 ~ 12月上旬</b>。<br>请耐心等待空窗期结束。</div></div>`;
+  } else {
+    // 今日操作
+    if(nbuy > 0 || nsell > 0) {
+        h+=`<div class="card"><div style="color:#cbd5e1;font-size:14px;font-weight:600;margin-bottom:10px">🔥 今日实盘操作</div>`;
+        if(nbuy > 0) h+=`<div class="buy"><h3>🔴 今日建仓 (流通市值后50%) (${nbuy}只)</h3>${tbl(d.buy_today, buyCols)}</div>`;
+        if(nsell > 0) h+=`<div class="sell" style="margin-top:16px"><h3>🟢 今日尾盘平仓 (收割ETF) (${nsell}只)</h3>${tbl(d.sell_today, sellCols)}</div>`;
+        h+=`</div>`;
+    }
+    
+    // 当前持仓
+    if(nhold > 0) {
+        h+=`<div class="card"><div style="color:#cbd5e1;font-size:14px;font-weight:600;margin-bottom:10px">💼 当前持仓</div>`;
+        h+=`<div class="watch"><h3>⏳ 等待T-1卖出 (${nhold}只)</h3>${tbl(d.holdings, holdCols, r => r.to_sell_td <= 2 ? 'highlight' : '')}</div></div>`;
+    }
+    
+    // 观察名单
+    if(nwatch > 0 && nbuy === 0 && nsell === 0 && nhold === 0) {
+        h+=`<div class="card watch"><h3>👀 观察名单 (未到T-20建仓日) (${nwatch}只)</h3>${tbl(d.watch, watchCols)}</div>`;
+    }
+  }
+  
+  if(d.note) h+=`<div class="note"><span class="highlight">📝 最新量化结论：</span>${d.note}</div>`;
+  
+  document.getElementById("content").innerHTML=h;
+}).catch(e=>{
+  document.getElementById("content").innerHTML=`<div class="empty" style="color:#f87171">加载失败: ${e.message}</div>`;
+});
+
+// ===== 纳入评审日历 + 三段提醒 (即将发公告/公告窗口/待生效) =====
+fetch("/api/index_inclusion/calendar").then(r=>r.json()).then(d=>{
+  const rv=d.reviews||[], al=d.alerts||[]; if(!rv.length && !al.length) return;
+  let h="";
+  al.forEach(a=>{ const col=a.stage==='announce'?'#7c2d12':(a.stage==='soon'?'#1f1604':'#0c2a1a');
+    const bd=a.stage==='announce'?'#f87171':(a.stage==='soon'?'#fbbf24':'#34d399');
+    h+=`<div style="background:${col};border:1px solid ${bd};border-radius:8px;padding:10px 14px;margin-bottom:8px;color:#fde68a;font-size:14px;font-weight:600">${a.msg}</div>`; });
+  h+=`<div class="card"><h3 style="color:#60a5fa;margin-top:0;font-size:15px">🗓️ 纳入评审日历(各指数下次)</h3><table><thead><tr><th>指数评审</th><th>预计公告</th><th>生效日</th><th>距生效</th></tr></thead><tbody>`;
+  rv.forEach(r=>{ const near=r.days_to_effective<=30; h+=`<tr${near?' style="background:rgba(96,165,250,0.18)"':''}><td>${r.name}</td><td>${r.announce||'-'}</td><td>${r.effective}</td><td>${r.days_to_effective}天</td></tr>`; });
+  h+=`</tbody></table><div style="color:#64748b;font-size:12px;margin-top:6px">日期为规则推算(节假日可能±1-2天)。公告窗口提醒来时, 去官网抓名单→填 upcoming_inclusions.json / fetch_foreign_inclusion 源。境内宽基用左侧预测; MSCI/富时靠抓取。</div></div>`;
+  document.getElementById("cal-box").innerHTML=h;
+}).catch(e=>{});
+
+// ===== 候选股 一键批量研报/盈利预测 =====
+let _pbT=null;
+window.predBatch=function(which){
+  const codes=window._predCodes||[]; const st=document.getElementById('pbst');
+  if(!codes.length){ if(st)st.textContent='无候选'; return; }
+  if(st) st.textContent='提交中...';
+  fetch('/api/batch_gen',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[which]:true,codes:codes})})
+    .then(r=>r.json()).then(r=>{ if(st)st.textContent=r.message||''; if(!r.ok)return;
+      if(_pbT)clearInterval(_pbT); _pbT=setInterval(predBatchPoll,10000);
+    }).catch(()=>{ if(st)st.textContent='请求失败'; });
+};
+function predBatchPoll(){
+  fetch('/api/batch_gen/status').then(r=>r.json()).then(s=>{ const st=document.getElementById('pbst'); if(!st)return;
+    if(s.msg) st.textContent=s.msg+(s.n?` (${s.i||0}/${s.n})`:'');
+    if(s.state==='done'){ clearInterval(_pbT); st.textContent='✅ '+s.msg+' — 去研报/盈利预测页看'; }
+  }).catch(()=>{});
+}
+
+// ===== 预计下一期调入 (准成分预测: 复现度越高颜色越深, 生效后对比真实命中率) =====
+fetch("/api/index_inclusion/predict").then(r=>r.json()).then(d=>{
+  const idxs=d.indices||[]; if(!idxs.length) return;
+  const _allcand=idxs.flatMap(ix=>(ix.candidates||[]));
+  _allcand.sort((a,b)=>(b.in_zone-a.in_zone)||(b.conf-a.conf));  // 优先够格+高复现
+  window._predCodes=[...new Set(_allcand.map(c=>c.code))].slice(0,60);  // 上限60只(批量太重)
+  let h=`<div class="hd" style="font-size:18px;margin-top:24px">🔮 预计下一期调入(准成分预测)</div>`;
+  h+=`<div style="margin:6px 0 10px"><button onclick="predBatch('report')" style="font-size:13px;padding:6px 12px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">📦 候选一键研报(${window._predCodes.length})</button> <button onclick="predBatch('forecast')" style="font-size:13px;padding:6px 12px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer">📦 候选一键盈利预测</button> <span id="pbst" style="color:#94a3b8;font-size:13px;margin-left:8px"></span></div>`;
+  h+=`<div class="sub">按自由流通市值排名预测(候选来自下一档指数)。<b>颜色越深=连续上榜天数越多(置信越高)</b>;「够格」=已排进目标N名内,「临界」=边界观察。生效时自动对比预测vs真实命中率。<b style="color:#fbbf24">提醒</b>:排名近似(上证50等实际用自由流通加权), 排名很靠前却列为候选的可能是方法学差异或已调入, 请对照各指数「最近一次调入」。</div>`;
+  idxs.forEach(ix=>{
+    const acc=ix.accuracy, lr=ix.last_review||{};
+    h+=`<div class="card"><h3 style="color:#a78bfa;margin-top:0">${ix.name} <span style="color:#94a3b8;font-size:13px">下次调仓 ${ix.next_review||"-"} · 候选 ${ix.n_candidates}只`+
+       (acc?` · 上期命中 ${acc.hit}/${acc.predicted}(精度${(acc.precision*100).toFixed(0)}% 召回${(acc.recall*100).toFixed(0)}%)`:"")+`</span></h3>`;
+    // 最近一次调入 (日期+明细)
+    if(lr.date){
+      const added=(lr.added||[]);
+      h+=`<div style="font-size:13px;color:#cbd5e1;margin-bottom:8px">📌 最近一次调仓 <b>${lr.date}</b>`+
+         (added.length?` · 调入 ${added.length}只: `+added.map(a=>`${a.name}(${a.code})`).join("、")
+          : (lr.stale?` · <span style="color:#fbbf24">${lr.note||"成分待更新"}</span>`:" · 无新增"))+`</div>`;
+    }
+    if(ix.stale){ h+=`<div class="empty" style="color:#fbbf24">⏳ 调整刚生效、tushare成分滞后(约月末更新), 暂停预测以免误列已调入的票。</div></div>`; return; }
+    const cs=(ix.candidates||[]).slice(0,30);
+    if(!cs.length){ h+=`<div class="empty">暂无候选(刚调仓完/无穿越)。</div></div>`; return; }
+    h+=`<table><thead><tr><th>代码</th><th>名称</th><th>市值(亿)</th><th>池排名</th><th>状态</th><th>复现</th></tr></thead><tbody>`;
+    cs.forEach(c=>{
+      const a=Math.min(0.85, 0.12+0.73*(c.conf||0));            // 复现度→背景深浅
+      const bg=`background:rgba(167,139,250,${a.toFixed(2)})`;
+      const zone=c.in_zone?`<span style="color:#34d399">✓够格</span>`:`<span style="color:#fbbf24">临界</span>`;
+      h+=`<tr style="${bg}"><td>${c.code}</td><td>${c.name}</td><td>${c.circ_mv}</td><td>${c.rank}</td><td>${zone}</td><td>${c.days_seen}/${c.total_days}</td></tr>`;
+    });
+    h+=`</tbody></table></div>`;
+  });
+  document.getElementById("predict-box").innerHTML=h;
+}).catch(e=>{});
+
+// 跨页面切换/刷新后, 自动恢复仍在 PC 后台运行的进度 (状态服务端持久; 轮询函数本身已对元素缺失做保护).
+(function resumeInclusionJobs(){
+  fetch('/api/index_inclusion/status').then(r=>r.json()).then(s=>{
+    if(!s||s.state!=='running')return;
+    const st=document.getElementById('recalc-status'); if(st)st.textContent='PC: '+(s.msg||'重算中…');
+    const b=document.getElementById('recalc'); if(b)b.disabled=true;
+    if(_pollT)clearInterval(_pollT); _pollT=setInterval(pollStatus,8000);
+  }).catch(()=>{});
+  fetch('/api/batch_gen/status').then(r=>r.json()).then(s=>{
+    if(!s||s.state!=='running')return;
+    const st=document.getElementById('pbst'); if(st)st.textContent=(s.msg||'批量生成中…')+(s.n?` (${s.i||0}/${s.n})`:'');
+    if(_pbT)clearInterval(_pbT); _pbT=setInterval(predBatchPoll,10000);
+  }).catch(()=>{});
+})();
+</script>
+</body>
+</html>

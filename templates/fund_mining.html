@@ -1,0 +1,125 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>基本面增强挖掘 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:1000px;margin:0 auto;padding:14px}
+  .hd{font-size:14px;color:#86efac;margin:16px 0 6px;font-weight:600}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .mine-card{background:#0f1f17;border:1px solid #1e5f3a}
+  button{font-size:13px;padding:8px 18px;border-radius:8px;cursor:pointer;background:#166534;color:#fff;border:none}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input[type=number]{width:54px;background:#0b1220;border:1px solid #334155;color:#e2e8f0;border-radius:5px;padding:4px}
+  .st{color:#94a3b8;font-size:12.5px}
+  .live{color:#86efac;font-size:13px;font-family:monospace}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{border:1px solid #1e293b;padding:4px 8px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#111827;color:#94a3b8}
+  .pos{color:#86efac}.neg{color:#fca5a5}.dim{color:#64748b}
+  .tag{font-size:10px;padding:1px 6px;border-radius:8px}
+  .t-pos{background:#14532d;color:#86efac}.t-neg{background:#5f1d1d;color:#fca5a5}.t-noise{background:#1e293b;color:#64748b}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:8px 0}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>专做 <b>🧬 基本面增强挖掘</b>(与 /rdagent 的 OHLCV挖掘/模型实验室分开, 防误操作)。挖矿用 prompt 注入的 <a href="/fund-features">28个基本面特征</a> + Factor-Zoo算子框架 + "经营变化×市场定价确认"双重验证内核, 挖量价×基本面交叉因子。下方: 28特征对base的<b>正交增量榜</b>(哪些特征真有正交alpha)、历次🧬批次、挖到因子的resid增量榜。<b>挖矿数据删D盘前都归档到 Z:/claude/rdagent_workspace_archive。仅研究。</b></div></details>
+  <div class="wrap">
+    <div class="card mine-card">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-weight:600;color:#86efac">🧬 基本面增强挖掘</span>
+        <label class="st">轮数 <input id="loops" type="number" min="1" max="10" value="1"/></label>
+        <button id="mine">🧬 开始挖掘</button>
+        <a href="/fund-predict-compare?univ=csi300" style="text-decoration:none"><button type="button" style="background:#1e3a8a">🔬 去对比预测(沪深300)</button></a>
+        <span id="live" class="live"></span>
+      </div>
+      <div class="st" style="margin-top:6px;color:#64748b">建议 loop_n=1(Loop 0可靠完成出增量榜; Loop 1编码步偶发崩)。挖矿~小时级, 需 PC Docker。挖到🧬批次后点「去对比预测」→ 在 <a href="/fund-predict-compare?univ=csi300" style="color:#86efac">🧬批次vs基线</a> 选该批次出次日买入清单。</div>
+    </div>
+
+    <div class="hd">🕘 挖掘历史留痕 (每次挖掘对比: 时间/轮数/因子/通过/结果)</div>
+    <div id="history" class="st">加载中…</div>
+
+    <div class="hd">📊 28基本面特征 · 对base正交增量榜 (哪些特征真有正交alpha)</div>
+    <div id="validate" class="st">加载中…</div>
+
+    <div class="hd">🧬 历次基本面批次</div>
+    <div id="batches" class="st">加载中…</div>
+
+    <div class="hd">🔬 本轮挖到因子 · resid增量榜</div>
+    <div id="resid" class="st">加载中…</div>
+  </div>
+<script>
+const $=id=>document.getElementById(id);
+let POLL=null;
+function tag(ric){ if(ric==null) return '<span class="tag t-noise">无/regime</span>';
+  if(Math.abs(ric)>=0.01) return ric>0?'<span class="tag t-pos">正增量(多头)</span>':'<span class="tag t-neg">负增量(空头腿)</span>';
+  return '<span class="tag t-noise">弱/噪声</span>'; }
+function render(d){
+  const status=d.status||{}; const pending=d.pending||status.state==="running";
+  $("mine").disabled=pending;
+  $("live").innerHTML = pending ? ("⏳ "+(status.msg||"PC处理中…")) : (status.state==="error"?('<span style="color:#fca5a5">⚠️ '+(status.msg||"")+'</span>'):(status.msg||""));
+  if(pending && !POLL) POLL=setInterval(load,8000);
+  if(!pending && POLL){ clearInterval(POLL); POLL=null; }
+  // 挖掘历史留痕
+  const hist=d.history||[];
+  if(hist.length){
+    let h='<div class="card"><table><thead><tr><th>时间</th><th>轮数</th><th>因子数</th><th>模型</th><th>resid过关</th><th>结果</th><th>挖出的因子</th></tr></thead><tbody>';
+    h+=hist.map(r=>{
+      const pass=r.n_pass; const passcls=pass>0?'pos':(pass===0?'dim':'');
+      const passtxt=(r.n_eval==null)?'<span class="dim">未评</span>':`<span class="${passcls}">${pass}/${r.n_eval}</span>`;
+      const ocls=pass>0?'pos':'dim';
+      const facs=(r.factors||[]); const facstr=facs.slice(0,8).join(', ')+(facs.length>8?` …(${facs.length})`:'');
+      return `<tr><td>${r.time}</td><td>${r.loops_done}</td><td>${r.n_factors}</td><td class="dim" style="font-size:10px">${(r.model||'?').replace('moonshotai/','').replace('z-ai/','')}</td><td>${passtxt}</td><td class="${ocls}">${r.outcome||''}</td><td class="dim" style="font-size:10.5px;text-align:left;max-width:340px">${facstr}</td></tr>`;
+    }).join('');
+    h+='</tbody></table><div class="note">每行=一次挖掘(按 trace 留痕)。<b>resid过关</b>=该次挖出因子里对base有正交增量的个数(0=被base吸收, 正常);<b>结果</b>绿色=出腿。可对比不同模型/轮数/因子的产出。挖出因子全名见 trace 日志。</div></div>';
+    $("history").innerHTML=h;
+  } else $("history").innerHTML='<div class="card st">还没有挖掘记录。挖一次后这里按时间留痕(时间/轮数/因子/通过/结果),便于跨次对比。</div>';
+  // 特征增量榜
+  const fv=d.feat_validate||{}; const rows=fv.rows||[];
+  if(rows.length){
+    let h=`<div class="card"><div class="st" style="margin-bottom:4px">base_ic(中证1000饱和)=<b>${fv.base_ic}</b> · resid_ic=对6个base因子正交后的残差IC(纯alpha, |值|≥0.01=有正交增量)</div><table><thead><tr><th>特征</th><th>IC5</th><th>resid_ic</th><th>覆盖</th><th>判定</th></tr></thead><tbody>`;
+    rows.forEach(r=>{ const ric=r.resid_ic;
+      h+=`<tr><td>$${r.feat}</td><td class="dim">${r.ic5==null?'-':r.ic5}</td><td class="${ric>0?'pos':(ric<0?'neg':'dim')}">${ric==null?'-':ric}</td><td class="dim">${(r.coverage*100).toFixed(0)}%</td><td>${tag(ric)}</td></tr>`; });
+    h+='</tbody></table><div class="note">正增量=该特征单调对齐前瞻收益, 当多头; 负增量=反向(小盘高质量/股息跑输), 当<b>空头/剔除腿</b>; 弱/噪声=单独无用(留给交叉)。这是挖矿构造因子的方向依据。</div></div>';
+    $("validate").innerHTML=h;
+  } else $("validate").innerHTML='<div class="card st">还没有特征增量榜。PC 跑 validate_new_features.py 生成。</div>';
+  // 🧬批次
+  const fb=d.fund_batches||[];
+  $("batches").innerHTML = fb.length ?
+    ('<div class="card"><table><thead><tr><th>批次</th><th>因子数</th><th>生成时间</th></tr></thead><tbody>'+
+     fb.map(b=>`<tr><td>🧬 ${b.label}</td><td>${b.n_factors}</td><td class="dim">${b.created_at||''}</td></tr>`).join('')+'</tbody></table></div>')
+    : '<div class="card st">还没有 🧬 基本面批次。挖矿挖到能<b>夺SOTA</b>的因子才会出批次(没夺SOTA不记账)。挖矿历史数据在 Z:/claude/rdagent_workspace_archive。</div>';
+  // resid榜
+  const rs=d.resid_screen||{}; const rr=rs.rows||[];
+  $("resid").innerHTML = rr.length ?
+    ('<div class="card"><div class="st">base_ic=<b>'+rs.base_ic+'</b> · 挖到因子对base正交后增量</div><table><thead><tr><th>因子</th><th>resid_ic</th><th>gain</th><th>maxcorr</th></tr></thead><tbody>'+
+     rr.map(r=>`<tr><td>${r.name||r.factor||'?'}</td><td class="${(r.resid_ic||0)>0?'pos':'dim'}">${r.resid_ic==null?'-':r.resid_ic}</td><td class="dim">${r.gain==null?'-':r.gain}</td><td class="dim">${r.maxcorr==null?'-':r.maxcorr}</td></tr>`).join('')+'</tbody></table></div>')
+    : '<div class="card st">还没有挖到因子的 resid 榜。基本面路挖完 watcher 自动跑 resid 检验 → 这里显示哪些挖到的交叉因子有正交增量。</div>';
+}
+async function load(){
+  try{
+    const response=await fetch("/api/fund_mining");
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    render(await response.json());
+  }catch(e){
+    const message=`数据加载失败: ${e.message||"网络异常"}`;
+    $("live").textContent=message;
+    $("history").innerHTML=`<div class="card st" style="color:#fca5a5">${message} <button type="button" onclick="load()" title="重新加载">↻ 重试</button></div>`;
+    $("mine").disabled=false;
+  }
+}
+$("mine").addEventListener("click", async ()=>{
+  const n=parseInt($("loops").value)||1;
+  if(!confirm(`确定开始 🧬 基本面增强挖掘？\n轮数 loop_n=${n}, ~小时级, 烧LLM, 需PC Docker。\n用28个基本面特征挖量价×基本面交叉因子。`)) return;
+  $("mine").disabled=true; $("live").textContent="启动中…";
+  try{ const j=await (await fetch("/api/rdagent/mine?fund=1&loop_n="+n,{method:"POST"})).json(); $("live").textContent=j.message||""; setTimeout(load,1500); }
+  catch(e){ $("live").textContent="失败: "+e.message; $("mine").disabled=false; }
+});
+load();
+</script>
+</body>
+</html>

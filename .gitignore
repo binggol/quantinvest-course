@@ -1,0 +1,19 @@
+# 环境密钥（只保留 .env.example）
+.env
+
+# 运行时数据
+data/
+qlib_data/
+uploads/
+mlruns/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+*.log
+*.bak

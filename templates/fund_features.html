@@ -1,0 +1,68 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>基本面特征 · quantinvest</title>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  .hd{font-size:14px;color:#a78bfa;margin:16px 0 6px;font-weight:600}
+  .card{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .frow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .fname{font-family:monospace;color:#7dd3fc;font-size:14px;min-width:140px}
+  .cov{flex:none;width:120px}
+  .covbar{height:8px;background:#1e293b;border-radius:4px;overflow:hidden}
+  .covbar>span{display:block;height:100%;background:#34d399}
+  .stat{color:#cbd5e1;font-size:12px}.stat b{color:#e2e8f0}
+  .hist{display:inline-flex;gap:1px;align-items:flex-end;height:30px}
+  .hist span{width:5px;background:#60a5fa;border-radius:1px}
+  .win{color:#fbbf24;font-size:11px}
+  .desc{color:#64748b;font-size:11.5px;margin-top:4px}
+  .note{background:#1a2433;border:1px solid #2a4a6a;border-radius:8px;padding:9px 12px;color:#cbd5e1;font-size:12px;line-height:1.6;margin:10px 0}
+</style>
+</head>
+<body>
+  {% include "_nav.html" %}
+  <details class="usage"><summary>ℹ️ 这个页面怎么用</summary><div>灌进 qlib 给 RD-Agent 挖矿用的<b>量价之外的正交维度</b>: 基础财务(ann_date披露日阶梯对齐防未来函数)、行业聚合(预计算行业截面均值/标准差, LLM写 <code>($gm-$ind_mean_gm)/$ind_std_gm</code> 即行业中性)、业绩预告/快报PIT级联+财报新鲜度衰减(抓PEAD)。这里展示每个特征的<b>覆盖率/取值范围/winsorize边界/分布</b>。目的=打破纯OHLCV挖矿停滞。<b>仅研究。</b></div></details>
+  <div class="wrap">
+    <div id="meta" class="stat" style="margin-bottom:8px"></div>
+    <div id="out" style="color:#64748b;padding:10px">加载中…(基本面特征 dumper 跑完后显示)</div>
+  </div>
+<script>
+const $=id=>document.getElementById(id);
+const DESC={gm:"销售毛利率",dedt_yoy:"扣非净利同比增速",roe:"净资产收益率",debt:"资产负债率",
+  ind_mean_gm:"所属行业当日毛利率均值",ind_std_gm:"所属行业当日毛利率标准差",ind_mean_dedt_yoy:"所属行业当日扣非增速均值",
+  perf_skew:"业绩预告/快报超预期偏离(PIT, vs去年同期)",fund_fresh:"财报新鲜度(距上次披露exp衰减, 半衰15天→抓PEAD)",
+  val_pe_inv:"市盈率倒数 EP=1/PE_TTM(亏损股为负, 规避分母0崩溃)",val_pb_inv:"市净率倒数 BP=1/PB",val_ps_inv:"市销率倒数 SP=1/PS_TTM",
+  ocf:"经营现金流/营收(利润含金量)",repo_decay:"回购公告exp衰减(半衰15天)",idx_weight:"沪深300成分权重(否则0)",
+  dgm:"毛利率同比改善(本期-去年同期, 验证多空夏1.3最强个股基本面; 只同比不做环比连升)",
+  hot_decay:"热榜情绪反转(ths_hot上榜exp衰减半衰10天, 仅2024+; 对比验证+0.86夏普)",
+  hot_streak:"连续上榜天数(连着几个交易日在榜, 仅2024+; 对比判叠decay冗余但留着备用)",
+  or_yoy:"营业收入同比增速(成长)",netprofit_yoy:"净利润同比增速",netprofit_margin:"销售净利率",
+  assets_turn:"总资产周转率(次/年, DuPont效率腿)",roe_dt:"扣非ROE(更干净)",ocf_np:"净现比 OCF/扣非净利(利润含金量, 查造假; 与ocf并存)",
+  dv_ttm:"股息率(经典价值/质量, 蓝筹倾斜)",
+  preann_pos:"预告预增flag(预增/略增/扭亏后45交易日=1; 业绩抢跑夏2.05)",days_to_report:"距预计披露交易日数[0,60],PIT; 配preann_pos重构抢跑窗口",
+  rsrs:"沪深300 RSRS市场状态(广播给所有股; regime闸门,独立有效未衰减)"};
+function hist(h){ if(!h||!h.length) return ''; const m=Math.max(1,...h); return '<span class="hist">'+h.map(v=>`<span style="height:${Math.round(2+28*v/m)}px"></span>`).join('')+'</span>'; }
+function card(f){
+  return `<div class="card"><div class="frow">
+    <span class="fname">$${f.name}</span>
+    <span class="cov"><div style="color:#64748b;font-size:10px">覆盖 ${(f.coverage*100).toFixed(0)}%</div><div class="covbar"><span style="width:${(f.coverage*100).toFixed(0)}%"></span></div></span>
+    <span class="stat">范围 <b>${f.min}</b>~<b>${f.max}</b> · 均值 <b>${f.mean}</b> · 中位 <b>${f.median}</b></span>
+    ${f.winsor?`<span class="win">winsorize [${f.winsor[0]},${f.winsor[1]}]</span>`:''}
+    ${hist(f.hist)}
+  </div><div class="desc">${DESC[f.name]||''}</div></div>`;
+}
+(async()=>{
+  let d; try{ d=await (await fetch("/api/fund_features")).json(); }catch(e){ $("out").textContent="加载失败"; return; }
+  const F=d.features||[];
+  if(!F.length){ $("out").innerHTML='<div style="color:#64748b;padding:10px">还没有基本面特征数据。PC 端 <code>dump_fundamental_features.py</code> 跑完后(拉财务+行业+预告快报, 约15-30分钟)这里会显示覆盖率/分布。</div>'; return; }
+  $("meta").innerHTML=`共 <b style="color:#e2e8f0">${F.length}</b> 个特征 · 覆盖 <b>${d.n_dumped||d.n_codes}</b> 股 × ${d.n_days} 交易日 · 更新 ${d.updated||''}`;
+  let h=''; const kinds=["基础财务","估值","行业聚合","成分","事件/衰减","情绪","市场状态"];
+  kinds.forEach(k=>{ const fs=F.filter(f=>f.kind===k); if(fs.length){ h+=`<div class="hd">${k}</div>`+fs.map(card).join(''); } });
+  $("out").innerHTML=h+'<div class="note">覆盖率=有值的(股×日)占比(财报需ann_date之后才有, 早年覆盖低正常)。直方图=该特征winsorize后取值分布。这些特征已灌进 qlib, 配合 prompts 让 miner 挖"量价×基本面"交叉因子。</div>';
+})();
+</script>
+</body>
+</html>
