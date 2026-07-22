@@ -43,7 +43,7 @@ CATS = [
 
 def cninfo(kw, sedate, col):
     out = []
-    for a in query_announcements(kw, sedate, col, max_pages=11, pause=0.4):
+    for a in query_announcements(kw, sedate, col, max_pages=40, pause=0.4):
         code = str(a.get('secCode', ''))[:6]; t = a.get('announcementTime'); ti = a.get('announcementTitle', '')
         try:
             ad = datetime.datetime.utcfromtimestamp(t / 1000).strftime('%Y-%m-%d')

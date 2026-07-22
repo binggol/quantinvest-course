@@ -1299,16 +1299,24 @@ def download_recent(
     log.info(f"to download: {len(todo)} (skipping {len(dates) - len(todo)} already done)")
 
     failures = []
+    today_str = datetime.now().strftime("%Y%m%d")
     for td in todo:
         target = PARQUET_DIR / f"{td}.parquet"
         tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
         try:
             daily = pro.daily(trade_date=td)
             if daily is None or daily.empty:
+                # 当天数据可能还没收盘后发布，跳过而不是整体失败
+                if td >= today_str:
+                    log.warning(f"{td}: daily data not yet published, skipping")
+                    continue
                 raise RuntimeError("daily returned no rows")
             time.sleep(sleep)
             adj = pro.adj_factor(trade_date=td)
             if adj is None or adj.empty:
+                if td >= today_str:
+                    log.warning(f"{td}: adj_factor not yet published, skipping")
+                    continue
                 raise RuntimeError("adj_factor returned no rows")
             required = {"ts_code", "trade_date", "adj_factor"}
             if not required.issubset(adj.columns):

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"/>
@@ -30,6 +30,16 @@
     <div class="hero">
       <div class="big" id="hero-big">加载中…</div>
       <div class="sub" id="hero-sub"></div>
+    </div>
+    <div class="card" style="border-color:#1e3a5f">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-weight:700">🔄 全量数据刷新</div>
+          <div style="font-size:11.5px;color:#94a3b8">重新拉取行情、财务、热榜等数据并更新模型输入</div>
+        </div>
+        <button id="refresh-all-btn" onclick="refreshAllData()" style="font-size:12px;padding:5px 12px;background:#1e3a5f;color:#e2e8f0;border:1px solid #2a4a6a;border-radius:6px;cursor:pointer">开始刷新</button>
+      </div>
+      <div id="refresh-all-msg" style="margin-top:8px;font-size:12px;color:#94a3b8"></div>
     </div>
     <div id="body"></div>
     <div class="iron">
@@ -203,6 +213,57 @@ async function loadHealth(){
   const previous=document.getElementById("data-health-section"); if(previous)previous.remove();
   const hd=document.createElement("div"); hd.id="data-health-section"; hd.innerHTML=h; document.getElementById("body").appendChild(hd);
 }
+function getCsrfToken(){
+  const el = document.getElementById('csrf-context');
+  return el ? el.dataset.csrfToken : '';
+}
+async function refreshAllData(){
+  const btn = document.getElementById('refresh-all-btn');
+  const msg = document.getElementById('refresh-all-msg');
+  btn.disabled = true;
+  msg.textContent = '正在启动...';
+  try{
+    const r = await fetch('/api/refresh_all', {
+      method: 'POST',
+      headers: {'X-CSRF-Token': getCsrfToken()}
+    });
+    const j = await r.json();
+    msg.textContent = j.message || (j.ok ? '已启动' : '启动失败');
+    if(j.ok && j.running) pollRefreshAllStatus();
+    else btn.disabled = false;
+  }catch(e){
+    msg.textContent = '请求失败: ' + e;
+    btn.disabled = false;
+  }
+}
+function pollRefreshAllStatus(){
+  const btn = document.getElementById('refresh-all-btn');
+  const msg = document.getElementById('refresh-all-msg');
+  if(window._refreshAllTimer) clearInterval(window._refreshAllTimer);
+  window._refreshAllTimer = setInterval(async () => {
+    try{
+      const j = await (await fetch('/api/refresh_all/status')).json();
+      if(j.running){
+        msg.textContent = `刷新中... 当前步骤: ${j.current_step || '初始化'} | 开始于 ${j.started_at}`;
+      }else if(j.finished_at){
+        clearInterval(window._refreshAllTimer);
+        btn.disabled = false;
+        if(j.last_error){
+          msg.textContent = '刷新失败: ' + j.last_error + ' (完成于 ' + j.finished_at + ')';
+        }else{
+          msg.textContent = '刷新完成 ✅ (' + j.finished_at + ')';
+        }
+      }else{
+        msg.textContent = '等待开始...';
+      }
+    }catch(e){
+      msg.textContent = '状态查询失败: ' + e;
+    }
+  }, 5000);
+}
+fetch('/api/refresh_all/status').then(r=>r.json()).then(j=>{
+  if(j.running){ document.getElementById('refresh-all-btn').disabled=true; pollRefreshAllStatus(); }
+}).catch(()=>{});
 load();
 setInterval(load,60000);
 </script>

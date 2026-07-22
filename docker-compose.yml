@@ -6,6 +6,8 @@ x-quantinvest-common: &quantinvest-common
   environment:
     # PC computes model output and writes it to the shared directory.
     - PREDICT_JSON=/app/qlib_data/csv_tmp/predictions.json
+    # Run model prediction inside the Docker container instead of delegating to PC.
+    - PREDICT_COMPUTE_HERE=1
   volumes:
     - ./app.py:/app/app.py:ro
     - ./scripts:/app/scripts:ro

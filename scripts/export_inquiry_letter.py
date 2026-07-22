@@ -17,7 +17,7 @@ NAS = os.environ.get("QI_EXPORT_NAS_DIR", r"Z:\claude\qlib\data\csv_tmp")
 
 def cninfo(kw, sedate, col):
     out = []
-    for a in query_announcements(kw, sedate, col, max_pages=13, pause=0.5):
+    for a in query_announcements(kw, sedate, col, max_pages=40, pause=0.5):
         code = str(a.get('secCode', ''))[:6]; t = a.get('announcementTime'); ti = a.get('announcementTitle', '')
         try:
             ad = datetime.datetime.utcfromtimestamp(t / 1000).strftime('%Y-%m-%d')

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 
@@ -83,7 +83,6 @@ NAV_GROUPS = (
             NavLink("/runup", "业绩事件", "internal_operations"),
             NavLink("/repo", "回购事件", "internal_operations"),
             NavLink("/avoid", "风险模型", "internal_operations"),
-            NavLink("/snowball", "雪球风险", "internal_operations"),
             NavLink("/chipmap", "跨市场映射", "internal_operations"),
             NavLink("/tech-external", "科技外部信号", "internal_operations"),
             NavLink("/cross-market", "跨市场研究", "internal_operations"),
