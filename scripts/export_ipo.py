@@ -32,18 +32,21 @@ def board(c):
     if c.startswith("688"): return "科创板"
     if c.startswith("3"): return "创业板"
     return "主板"
+def _d(v):
+    # None/NaN 安全: None==None 为 True 会让 int(None) 抛 TypeError
+    return str(int(v)) if v is not None and v==v else ""
 def row(r):
     c=r["ts_code"]
     return {"code":c,"sub_code":str(r.get("sub_code","")),"name":r["name"],"board":board(c),
             "price":r.get("price"),"pe":r.get("pe"),"ballot":r.get("ballot"),
-            "ipo_date":str(int(r["ipo_date"])) if r.get("ipo_date")==r.get("ipo_date") else "",
-            "issue_date":str(int(r["issue_date"])) if r.get("issue_date")==r.get("issue_date") else "",
+            "ipo_date":_d(r.get("ipo_date")),
+            "issue_date":_d(r.get("issue_date")),
             "limit_amount":r.get("limit_amount")}
 today_buy=[]; soon_buy=[]; just_listed=[]
 if ns is not None and len(ns):
     for _,r in ns.iterrows():
-        ip=str(int(r["ipo_date"])) if r.get("ipo_date")==r.get("ipo_date") else ""
-        iss=str(int(r["issue_date"])) if r.get("issue_date")==r.get("issue_date") else ""
+        ip=_d(r.get("ipo_date"))
+        iss=_d(r.get("issue_date"))
         it=row(r)
         if ip==TODAY: today_buy.append(it)
         elif ip and TODAY<ip<= (datetime.strptime(TODAY,"%Y%m%d")+timedelta(days=7)).strftime("%Y%m%d"): soon_buy.append(it)

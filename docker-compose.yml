@@ -14,6 +14,8 @@ x-quantinvest-common: &quantinvest-common
     - MLFLOW_ALLOW_FILE_STORE=true
   volumes:
     - ./app.py:/app/app.py:ro
+    - ./cross_market.py:/app/cross_market.py:ro
+    - ./config:/app/config:ro
     - ./scripts:/app/scripts:ro
     - ./templates:/app/templates:ro
     - ./static:/app/static:ro
