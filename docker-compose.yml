@@ -8,6 +8,8 @@ x-quantinvest-common: &quantinvest-common
     - PREDICT_JSON=/app/qlib_data/csv_tmp/predictions.json
     # Run model prediction inside the Docker container instead of delegating to PC.
     - PREDICT_COMPUTE_HERE=1
+    # mlflow 新版默认禁用文件存储, qlib 记录实验需要显式允许
+    - MLFLOW_ALLOW_FILE_STORE=true
   volumes:
     - ./app.py:/app/app.py:ro
     - ./scripts:/app/scripts:ro
