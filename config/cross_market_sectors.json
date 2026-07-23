@@ -1,0 +1,12 @@
+{
+  "storage": {
+    "us": ["MU", "SNDK", "SMH", "SOXX"],
+    "korea": ["000660.KS", "005930.KS"],
+    "a_share_candidates": [
+      {"code": "301308.SZ", "name": "江波龙", "business_purity": 90},
+      {"code": "688525.SH", "name": "佰维存储", "business_purity": 90},
+      {"code": "603986.SH", "name": "兆易创新", "business_purity": 75},
+      {"code": "001309.SZ", "name": "德明利", "business_purity": 85}
+    ]
+  }
+}
